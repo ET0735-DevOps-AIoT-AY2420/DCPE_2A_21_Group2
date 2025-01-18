@@ -5,7 +5,7 @@ from hal import hal_ir_sensor as IR
 from hal import hal_led as led_ctrl
 from hal import hal_usonic as usonic
 from hal import hal_servo as servo
-from hal import hal_adc as potentio
+from hal import hal_adc as adc
 from picamera2 import Picamera2
 import time
 from telegram import Bot
@@ -98,8 +98,10 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Error sending Telegram message: {e}")
 
-def map_adc_to_angle(adc_value):
-    return int((adc_value / 1023) * 180)
+def adc_to_servo_angle(adc_value):
+    # Assuming adc_value ranges from 0 to 1023
+    angle = (adc_value * 180) / 1023
+    return angle
 
 
 def main():
@@ -108,8 +110,6 @@ def main():
     lcd = LCD.lcd()
     lcd.lcd_clear()
     
-    servo.init()
-    potentio.init()
 
     # Display initial message on LCD
     lcd.lcd_display_string("Admin Login", 1)
@@ -134,22 +134,27 @@ def main():
                     print("it is getting near!")
                     time.sleep(1)
                    # lcd.lcd_display_string("Intrusion Alert!", 2)
-
-                    # Ensure the door is closed
-                    servo.set_servo_position(closed_door_angle)
-                    print("Door set to closed position.")
-
-                    # Check ADC value
-                    adc_value = potentio.get_adc_value(0)
-                    if adc_value != closed_door_adc:
-                       # lcd.lcd_display_string("Intruder Alert!", 1)
-                        print("Someone is holding the door!")
-
-                    # Send Telegram alert
+                   # # Send Telegram alert
                     send_telegram_message("Alert: Someone is holding the door!")
+                    if admin_logged_in == True:
+                         adc.init()
+                         servo.init()
+                         adc_value = adc.get_adc_value(1)
+                         servo_angle = adc_to_servo_angle(adc_value)
+                         servo.set_servo_position(servo_angle)  # Set servo position based on angle
+                         if adc_value>900:
+                              send_telegram_message("Alert: the door is open")
+                              print('the door is opened')
+                    if admin_logged_in == False:
+                         if adc_value > 900:
+                            send_telegram_message("Alert: you forgot to lock your door")
+                            print('you forgot to lock your door')
             else:
                     print("Chill out, its OK.")
                     time.sleep(1)
+
+            
+            
         else:
                 print("Object not detected!")
                 time.sleep(1)
