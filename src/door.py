@@ -106,7 +106,6 @@ def adc_to_servo_angle(adc_value):
 
 
 def main():
-
     # Initialize hardware
     lcd.lcd_clear()
     servo.init()
@@ -122,16 +121,27 @@ def main():
     keypad_thread = Thread(target=keypad.get_key)
     keypad_thread.start()
 
+    # Door is initially closed
+    servo.set_servo_position(closed_door_angle)
+
     while True:
-        while True:
+        if admin_logged_in:
+            # Get ADC value and calculate servo angle
             adc_value = adc.get_adc_value(1)
             servo_angle = adc_to_servo_angle(adc_value)
             servo.set_servo_position(servo_angle)  # Set servo position based on angle
-            print(f"ADC Value: {adc_value}, Servo Angle: {servo_angle}")
-            sleep(0.1)
+            #lcd.lcd_clear()
+            #lcd.lcd_display_string("Door Open", 1)
+            print(f"Admin Logged In: ADC Value: {adc_value}, Servo Angle: {servo_angle}")
+        else:
+            # Keep the door closed if admin is not logged in
+            servo.set_servo_position(closed_door_angle)
+            #lcd.lcd_clear()
+            #lcd.lcd_display_string("Door Closed", 1)
+            print("Admin Not Logged In: Door Closed")
 
-    # Start door control loop
-    #control_door()
+        sleep(0.1)
+
 
 
 

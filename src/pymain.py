@@ -8,7 +8,10 @@ from hal import hal_servo as servo
 from hal import hal_adc as adc
 from picamera2 import Picamera2
 import time
+from time import sleep
 from telegram import Bot
+import RPi.GPIO as GPIO 
+
 
 #door_assigned values
 open_door_adc = 256
@@ -109,6 +112,8 @@ def main():
     # Initialize LCD
     lcd = LCD.lcd()
     lcd.lcd_clear()
+
+    adc_value = 0
     
 
     # Display initial message on LCD
@@ -120,45 +125,47 @@ def main():
     # Start the keypad scanning which will run forever in an infinite while(True) loop in a new Thread "keypad_thread"
     keypad_thread = Thread(target=keypad.get_key)
     keypad_thread.start()
+    servo.init()
+    adc.init()
+
+    servo.set_servo_position(closed_door_angle)
 
     while(True):
     #testing IR sensor
         IR.init()
         usonic.init()
         distance = usonic.get_distance()
+
         if distance < 15:
             print("Object detected!")
-            
-            
+
             if IR.get_ir_sensor_state():
-                    print("it is getting near!")
-                    time.sleep(1)
-                   # lcd.lcd_display_string("Intrusion Alert!", 2)
-                   # # Send Telegram alert
-                    send_telegram_message("Alert: Someone is holding the door!")
-                    if admin_logged_in == True:
-                         adc.init()
-                         servo.init()
-                         adc_value = adc.get_adc_value(1)
-                         servo_angle = adc_to_servo_angle(adc_value)
-                         servo.set_servo_position(servo_angle)  # Set servo position based on angle
-                         if adc_value>900:
-                              send_telegram_message("Alert: the door is open")
-                              print('the door is opened')
-                    if admin_logged_in == False:
-                         if adc_value > 900:
-                            send_telegram_message("Alert: you forgot to lock your door")
-                            print('you forgot to lock your door')
+                print("Object getting closer!")
+                send_telegram_message("Alert: Someone is holding the door!")
+                
+                if admin_logged_in:
+                    # Get ADC value and calculate servo angle
+                    adc_value = adc.get_adc_value(1)
+                    servo_angle = adc_to_servo_angle(adc_value)
+                    servo.set_servo_position(servo_angle)  # Set servo position based on angle
+                    #lcd.lcd_clear()
+                    #lcd.lcd_display_string("Door Open", 1)
+                    print(f"Admin Logged In: ADC Value: {adc_value}, Servo Angle: {servo_angle}")
+                else:
+                    # Keep the door closed if admin is not logged in
+                    servo.set_servo_position(closed_door_angle)
+                    #lcd.lcd_clear()
+                    #lcd.lcd_display_string("Door Closed", 1)
+                    print("Admin Not Logged In: Door Closed")
+
+                
             else:
-                    print("Chill out, its OK.")
-                    time.sleep(1)
-
-            
-            
+                print("No intrusion detected.")
         else:
-                print("Object not detected!")
-                time.sleep(1)
-
+            print("Object not detected!")
+            #servo.set_servo_position(closed_door_angle)
+        
+        sleep(1)
 
 
 
