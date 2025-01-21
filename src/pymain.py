@@ -35,6 +35,11 @@ ADMIN_PASSCODE = "1234"  # Replace with a secure passcode
 admin_logged_in = False  # Flag to track admin access
 entered_passcode = ""    # Buffer to store passcode input
 
+message_sent = False
+
+# Video file path
+VIDEO_FILE = "videos/alert_video.mp4"
+
 def admin_lcd_output():
     lcd.lcd_display_string("Enter Admin Code:", 1)
     lcd.lcd_display_string("*" * len(entered_passcode), 2)  # Mask input with asterisks
@@ -101,13 +106,37 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Error sending Telegram message: {e}")
 
+# Function to send Telegram video
+def send_telegram_video(video_path):
+    try:
+        with open(video_path, "rb") as video:
+            bot.send_video(chat_id=CHAT_ID, video=video, caption="Security Alert: Someone is holding the door!")
+        print("Telegram video sent successfully!")
+    except Exception as e:
+        print(f"Error sending Telegram video: {e}")
+
 def adc_to_servo_angle(adc_value):
     # Assuming adc_value ranges from 0 to 1023
     angle = (adc_value * 180) / 1023
     return angle
 
+# Function to handle video recording
+def record_video(duration=5):
+    try:
+        print("Recording video...")
+        picam2 = Picamera2()
+        config = picam2.create_video_configuration()
+        picam2.configure(config)
+        picam2.start_recording(VIDEO_FILE)
+        sleep(duration)  # Record for the specified duration
+        picam2.stop_recording()
+        print(f"Video saved at {VIDEO_FILE}")
+    except Exception as e:
+        print(f"Error recording video: {e}")
 
 def main():
+
+    global admin_logged_in, message_sent
 
     # Initialize LCD
     lcd = LCD.lcd()
@@ -143,27 +172,33 @@ def main():
                 print("Object getting closer!")
                 send_telegram_message("Alert: Someone is holding the door!")
                 
+                if not message_sent:
+                    send_telegram_message("Alert: Someone is holding the door!")
+                    record_video(duration=10)  # Record a 10-second video
+                    send_telegram_video(VIDEO_FILE)
+                    message_sent = True
+
+                    sleep (100)
+
                 if admin_logged_in:
                     # Get ADC value and calculate servo angle
                     adc_value = adc.get_adc_value(1)
                     servo_angle = adc_to_servo_angle(adc_value)
                     servo.set_servo_position(servo_angle)  # Set servo position based on angle
-                    #lcd.lcd_clear()
-                    #lcd.lcd_display_string("Door Open", 1)
                     print(f"Admin Logged In: ADC Value: {adc_value}, Servo Angle: {servo_angle}")
                 else:
                     # Keep the door closed if admin is not logged in
                     servo.set_servo_position(closed_door_angle)
-                    #lcd.lcd_clear()
-                    #lcd.lcd_display_string("Door Closed", 1)
                     print("Admin Not Logged In: Door Closed")
 
                 
             else:
                 print("No intrusion detected.")
+                message_sent = False
         else:
             print("Object not detected!")
             #servo.set_servo_position(closed_door_angle)
+            message_sent = False
         
         sleep(1)
 
