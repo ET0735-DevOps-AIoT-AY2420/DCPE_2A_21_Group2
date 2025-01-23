@@ -66,6 +66,7 @@ def handle_admin_login(key):
                 admin_logged_in = False
                 lcd.lcd_clear()
                 admin_lcd_output()
+                send_telegram_message("Admin logged out successfully.")
         else:
             lcd.lcd_clear()
             lcd.lcd_display_string("Access Denied", 1)
@@ -120,6 +121,24 @@ def adc_to_servo_angle(adc_value):
     angle = (adc_value * 180) / 1023
     return angle
 
+def handle_sensors():
+    """Monitor sensors and trigger alerts if necessary."""
+    global message_sent
+
+    IR.init()
+    usonic.init()
+    distance = usonic.get_distance()
+
+    if distance < 15 and IR.get_ir_sensor_state():
+        print("Intrusion detected!")
+        if not message_sent:
+            send_telegram_message("Alert: Someone is holding the door!")
+            record_video(duration=10)
+            send_telegram_video(VIDEO_FILE)
+            message_sent = True
+    else:
+        message_sent = False
+
 # Function to handle video recording
 def record_video(duration=5):
     try:
@@ -134,76 +153,43 @@ def record_video(duration=5):
     except Exception as e:
         print(f"Error recording video: {e}")
 
+def operate_servo():
+    """Control servo motor based on ADC input."""
+    adc_value = adc.get_adc_value(1)
+    angle = adc_to_servo_angle(adc_value)
+    servo.set_servo_position(angle)
+
 def main():
 
-    global admin_logged_in, message_sent
+    """Main program entry point."""
+    global admin_logged_in
 
-    # Initialize LCD
-    lcd = LCD.lcd()
     lcd.lcd_clear()
-
-    adc_value = 0
-    
-
-    # Display initial message on LCD
     lcd.lcd_display_string("Admin Login", 1)
 
-    # Initialize the HAL keypad driver
+    # Initialize hardware components
     keypad.init(key_pressed)
-
-    # Start the keypad scanning which will run forever in an infinite while(True) loop in a new Thread "keypad_thread"
-    keypad_thread = Thread(target=keypad.get_key)
-    keypad_thread.start()
     servo.init()
     adc.init()
 
-    servo.set_servo_position(closed_door_angle)
+    # Start keypad listener in a separate thread
+    keypad_thread = Thread(target=keypad.get_key)
+    keypad_thread.start()
 
-    while(True):
-    #testing IR sensor
-        IR.init()
-        usonic.init()
-        distance = usonic.get_distance()
-
-        if distance < 15:
-            print("Object detected!")
-
-            if IR.get_ir_sensor_state():
-                print("Object getting closer!")
-                send_telegram_message("Alert: Someone is holding the door!")
-                
-                if not message_sent:
-                    send_telegram_message("Alert: Someone is holding the door!")
-                    record_video(duration=10)  # Record a 10-second video
-                    send_telegram_video(VIDEO_FILE)
-                    message_sent = True
-
-                    sleep (100)
-
-                if admin_logged_in:
-                    # Get ADC value and calculate servo angle
-                    adc_value = adc.get_adc_value(1)
-                    servo_angle = adc_to_servo_angle(adc_value)
-                    servo.set_servo_position(servo_angle)  # Set servo position based on angle
-                    print(f"Admin Logged In: ADC Value: {adc_value}, Servo Angle: {servo_angle}")
-                else:
-                    # Keep the door closed if admin is not logged in
-                    servo.set_servo_position(closed_door_angle)
-                    print("Admin Not Logged In: Door Closed")
-
-                
-            else:
-                print("No intrusion detected.")
-                message_sent = False
+    while True:
+        handle_sensors()
+        if admin_logged_in:
+            operate_servo()
         else:
-            print("Object not detected!")
-            #servo.set_servo_position(closed_door_angle)
-            message_sent = False
+            # Check ADC value to determine if the door is unlocked
+            adc_value = adc.get_adc_value(1)
+            if adc_value < 1000:  # If the angle is below 10 degrees
+                send_telegram_message("Warning: Admin forgot to lock the door!")
         
         sleep(1)
 
 
 
-# Main entry pointd
+# Main entry point
 if __name__ == "__main__":
     main()
