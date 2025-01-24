@@ -6,11 +6,13 @@ from hal import hal_led as led_ctrl
 from hal import hal_usonic as usonic
 from hal import hal_servo as servo
 from hal import hal_adc as adc
-from picamera2 import Picamera2
 import time
 from time import sleep
 from telegram import Bot
-import RPi.GPIO as GPIO 
+from picamera2 import Picamera2
+import os
+from datetime import datetime
+import camera as camera
 
 
 #door_assigned values
@@ -38,7 +40,7 @@ entered_passcode = ""    # Buffer to store passcode input
 message_sent = False
 
 # Video file path
-VIDEO_FILE = "videos/alert_video.mp4"
+VIDEO_DIR = "videos"
 
 def admin_lcd_output():
     lcd.lcd_display_string("Enter Admin Code:", 1)
@@ -98,7 +100,6 @@ def key_pressed(key):
     lcd.lcd_display_string("Admin Logged In", 1)
     lcd.lcd_display_string("Press # to log out", 2)
 
-
 # Function to send Telegram message
 def send_telegram_message(message):
     try:
@@ -107,14 +108,6 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Error sending Telegram message: {e}")
 
-# Function to send Telegram video
-def send_telegram_video(video_path):
-    try:
-        with open(video_path, "rb") as video:
-            bot.send_video(chat_id=CHAT_ID, video=video, caption="Security Alert: Someone is holding the door!")
-        print("Telegram video sent successfully!")
-    except Exception as e:
-        print(f"Error sending Telegram video: {e}")
 
 def adc_to_servo_angle(adc_value):
     # Assuming adc_value ranges from 0 to 1023
@@ -132,26 +125,13 @@ def handle_sensors():
     if distance < 15 and IR.get_ir_sensor_state():
         print("Intrusion detected!")
         if not message_sent:
-            send_telegram_message("Alert: Someone is holding the door!")
-            record_video(duration=10)
-            send_telegram_video(VIDEO_FILE)
-            message_sent = True
+            if not admin_logged_in:
+                send_telegram_message("Alert: Someone is holding the door!")
+                camera.take_videos()
+                camera.send_latest_video()
+                message_sent = True
     else:
         message_sent = False
-
-# Function to handle video recording
-def record_video(duration=5):
-    try:
-        print("Recording video...")
-        picam2 = Picamera2()
-        config = picam2.create_video_configuration()
-        picam2.configure(config)
-        picam2.start_recording(VIDEO_FILE)
-        sleep(duration)  # Record for the specified duration
-        picam2.stop_recording()
-        print(f"Video saved at {VIDEO_FILE}")
-    except Exception as e:
-        print(f"Error recording video: {e}")
 
 def operate_servo():
     """Control servo motor based on ADC input."""
