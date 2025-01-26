@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stripe New Checkout</title>
+</head>
+<body>
+  <h1>Buy a Vending Machine Item</h1>
+  <button id="checkout-button">Checkout</button>
+
+  <!-- Stripe.js (v3) -->
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    const checkoutButton = document.getElementById('checkout-button');
+    checkoutButton.addEventListener('click', () => {
+      // POST to our create-checkout-session route
+      fetch('/create-checkout-session', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          // Redirect to Stripe Checkout
+          window.location.href = data.url;
+        })
+        .catch(err => console.error(err));
+    });
+  </script>
+</body>
+</html>

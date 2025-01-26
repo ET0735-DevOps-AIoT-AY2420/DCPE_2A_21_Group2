@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Payment Success</title>
+    <style>
+        .center-image {
+            display: flex; /* Use flexbox for centering */
+            justify-content: center; /* Center horizontally */
+            align-items: center; /* Center vertically (if needed) */
+            margin: 20px auto; /* Add some margin and auto for horizontal centering */
+        }
+        .center-image img {
+            display: block; /* Prevents default inline image behavior */
+            max-width: 100%; /* Ensures image doesn't exceed container width */
+            height: auto; /* Maintains aspect ratio */
+        }
+        body {
+            text-align: center; /* Center the text as well */
+        }
+    </style>
+</head>
+<body>
+    <h1>Payment Successful!</h1>
+    <p>Thank you for your purchase!</p>
+    <div class="center-image">
+        <img src="{{ url_for('static', filename='success_img.jpg') }}" 
+             alt="Payment Success Image" 
+             width="400"/>
+    </div>
+</body>
+</html>
