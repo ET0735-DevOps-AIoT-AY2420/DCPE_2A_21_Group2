@@ -65,11 +65,13 @@ def initialize_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sales (
             sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
             item_id INTEGER NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             price REAL NOT NULL,
             source TEXT NOT NULL,
-            FOREIGN KEY (item_id) REFERENCES menu (id)
+            FOREIGN KEY (item_id) REFERENCES menu (id),
+            FOREIGN KEY (order_id) REFERENCES orders (order_id)
         )
     """)
 

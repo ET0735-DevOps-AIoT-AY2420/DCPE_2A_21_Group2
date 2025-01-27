@@ -2,7 +2,9 @@ import time
 from threading import Thread
 import queue
 import sqlite3
+import prepare
 
+# Importing hardware abstraction libraries (HALs)
 from hal import hal_led as led
 from hal import hal_lcd as LCD
 from hal import hal_adc as adc
@@ -18,32 +20,40 @@ from hal import hal_usonic as usonic
 from hal import hal_dc_motor as dc_motor
 from hal import hal_accelerometer as accel
 
-# Empty list to store sequence of keypad presses
+# Queue for storing keypad inputs
 shared_keypad_queue = queue.Queue()
 
-# Database file
+# Database file location
 DB_FILE = "vending_machine.db"
 
-# Buffer for multiple-digit keypad inputs
+# Buffer for handling multi-digit keypad inputs
 input_buffer = ""
 awaiting_multi_digit_input = False
 
-# Callback function invoked when any key on keypad is pressed
+# Callback function for handling keypress events from the keypad
 def key_pressed(key):
+    """
+    Handles keypress events and manages input buffer for multi-digit inputs.
+    """
     global input_buffer, awaiting_multi_digit_input
-    if awaiting_multi_digit_input and key in range(10):  # Handle digits during multi-digit input
+    if awaiting_multi_digit_input and key in range(10):  # If awaiting input, add digits to buffer
         input_buffer += str(key)
-    elif awaiting_multi_digit_input and key == "#":  # Confirm multi-digit input
-        if input_buffer:  # Only put in the queue if there's input
+    elif awaiting_multi_digit_input and key == "#":  # Confirm multi-digit input with '#'
+        if input_buffer:  # Add to queue only if input exists
             shared_keypad_queue.put(input_buffer)
             input_buffer = ""
-    elif awaiting_multi_digit_input and key == "*":  # Clear multi-digit input
+    elif awaiting_multi_digit_input and key == "*":  # Clear buffer on '*'
         input_buffer = ""
     elif not awaiting_multi_digit_input and key in range(10):  # Directly handle single-digit inputs
         shared_keypad_queue.put(str(key))
 
-# Fetch menu from database
+# Fetch available menu items from the database
 def fetch_menu():
+    """
+    Retrieves all available menu items (availability = 1) from the database.
+    Returns:
+        list: A list of tuples containing item ID, name, price, and availability.
+    """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT id, name, price, availability FROM menu WHERE availability = 1")
@@ -51,24 +61,45 @@ def fetch_menu():
     conn.close()
     return menu
 
-# Insert new order into database
+# Insert a new order into the database
 def insert_order(item_id, source):
+    """
+    Inserts a new order into the database.
+    Args:
+        item_id (int): ID of the selected menu item.
+        source (str): Source of the order (e.g., "local").
+    Returns:
+        int: The order ID of the newly created order.
+    """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("INSERT INTO orders (item_id, source) VALUES (?, ?)", (item_id, source))
     conn.commit()
+    order_id = cursor.lastrowid  # Get the ID of the inserted order
     conn.close()
+    return order_id
 
-# Update order status in database
+# Update the status of an order in the database
 def update_order_status(order_id, status):
+    """
+    Updates the status of a specific order in the database.
+    Args:
+        order_id (int): ID of the order.
+        status (str): New status (e.g., "Completed", "Preparing").
+    """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("UPDATE orders SET status = ? WHERE order_id = ?", (status, order_id))
     conn.commit()
     conn.close()
 
-# Fetch the next pending order
+# Fetch the next pending order from the database
 def fetch_next_order():
+    """
+    Retrieves the next pending order (status = 'Pending') from the database.
+    Returns:
+        tuple: A tuple containing order ID and item ID of the next order.
+    """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT order_id, item_id FROM orders WHERE status = 'Pending' ORDER BY timestamp LIMIT 1")
@@ -76,15 +107,26 @@ def fetch_next_order():
     conn.close()
     return order
 
-# Generate initials for drink name
+# Generate initials for drink names
 def get_initials(name):
+    """
+    Creates initials from a drink's name (e.g., "Classic Coffee" -> "CC").
+    Args:
+        name (str): The name of the drink.
+    Returns:
+        str: The initials of the drink name.
+    """
     words = name.split()
     initials = ''.join(word[0].upper() for word in words)
     return initials
 
 def main():
+    """
+    Main function to handle the vending machine's operations.
+    """
     global input_buffer, awaiting_multi_digit_input
-    # Initialization of HAL modules
+
+    # Initialize hardware modules
     led.init()
     adc.init()
     buzzer.init()
@@ -98,23 +140,24 @@ def main():
     dc_motor.init()
     accelerometer = accel.init()
 
+    # Initialize keypad and start a thread for key detection
     keypad.init(key_pressed)
     keypad_thread = Thread(target=keypad.get_key)
     keypad_thread.start()
 
+    # Initialize LCD display
     lcd = LCD.lcd()
     lcd.lcd_clear()
 
     lcd.lcd_display_string("Smart Vending", 1)
     lcd.lcd_display_string("System Ready", 2)
-
     time.sleep(3)
 
     while True:
         lcd.lcd_clear()
         lcd.lcd_display_string("Enter Item #", 1)
 
-        # Fetch menu from database
+        # Display menu on the terminal and LCD
         menu = fetch_menu()
         for item in menu:
             print(f"{item[0]}. {item[1]} - ${item[2]:.2f}")
@@ -131,9 +174,11 @@ def main():
 
         try:
             item_id = int(keyvalue)
-            if any(item[0] == item_id for item in menu):
+            if any(item[0] == item_id for item in menu):  # Validate item ID
                 selected_item = next(item for item in menu if item[0] == item_id)
                 initials = get_initials(selected_item[1])
+
+                # Display selected drink details
                 lcd.lcd_clear()
                 lcd.lcd_display_string(f"Selected: {initials}", 1)
                 lcd.lcd_display_string(f"Price: ${selected_item[2]:.2f}", 2)
@@ -144,19 +189,26 @@ def main():
                 lcd.lcd_clear()
                 lcd.lcd_display_string("Confirm?", 1)
                 lcd.lcd_display_string("1-Yes 2-No", 2)
-
                 confirm_key = shared_keypad_queue.get()
                 buzzer.beep(0.1, 0.1, 1)
-                if confirm_key == "1":
-                    insert_order(item_id, "local")
+
+                if confirm_key == "1":  # User confirms the order
+                    order_id = insert_order(item_id, "local")
                     lcd.lcd_clear()
-                    lcd.lcd_display_string("Order Placed", 1)
-                    buzzer.beep(0.3, 0.1, 1)
+                    lcd.lcd_display_string(f"Preparing #{item_id}", 1)
+
+                    # Call the preparation function
+                    if prepare.prepare_drink(item_id):
+                        update_order_status(order_id, "Completed")
+                        lcd.lcd_clear()
+                        lcd.lcd_display_string("Drink Ready!", 1)
+                    else:
+                        lcd.lcd_clear()
+                        lcd.lcd_display_string("Prep Failed", 1)
                     time.sleep(2)
-                else:
+                elif confirm_key == "2":
                     lcd.lcd_clear()
                     lcd.lcd_display_string("Cancelled", 1)
-                    buzzer.beep(0.2, 0.1, 1)
                     time.sleep(2)
             else:
                 lcd.lcd_clear()
@@ -169,24 +221,25 @@ def main():
             buzzer.beep(0.2, 0.1, 2)
             time.sleep(2)
 
-        # Process pending orders
+        # Handle pending orders
         next_order = fetch_next_order()
         if next_order:
             order_id, item_id = next_order
             selected_item = next(item for item in menu if item[0] == item_id)
-            initials = get_initials(selected_item[1])
+
             lcd.lcd_clear()
-            lcd.lcd_display_string("Preparing", 1)
-            lcd.lcd_display_string(f"{initials}", 2)
+            lcd.lcd_display_string(f"Preparing #{item_id}", 1)
             update_order_status(order_id, "Preparing")
-            buzzer.beep(0.2, 0.1, 3)
-            time.sleep(5)  # Simulate preparation time
-            update_order_status(order_id, "Completed")
-            lcd.lcd_clear()
-            lcd.lcd_display_string("Completed", 1)
-            lcd.lcd_display_string(f"{initials}", 2)
-            buzzer.beep(0.3, 0.1, 2)
-            time.sleep(2)
+
+            if prepare.prepare_drink(item_id):
+                update_order_status(order_id, "Completed")
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Completed", 1)
+            else:
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Prep Failed", 1)
+            time.sleep(3)
+
 
 if __name__ == "__main__":
     main()
