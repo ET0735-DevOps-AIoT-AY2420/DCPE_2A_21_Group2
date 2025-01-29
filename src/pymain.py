@@ -15,13 +15,6 @@ from datetime import datetime
 import camera as camera
 
 
-#door_assigned values
-open_door_adc = 256
-open_door_angle = 180
-
-closed_door_adc = 0
-closed_door_angle = 0
-
 BOT_TOKEN = "7723998968:AAFc4QK-qRaIxCfqeqLYRs1OLuF-2z_OOiM"
 CHAT_ID = "5819192033"
 
@@ -33,7 +26,7 @@ lcd.lcd_clear()
 bot = Bot(token=BOT_TOKEN)
 
 # Admin access variables
-ADMIN_PASSCODE = "1234"  # Replace with a secure passcode
+ADMIN_PASSCODE = "1244"  # Replace with a secure passcode
 admin_logged_in = False  # Flag to track admin access
 entered_passcode = ""    # Buffer to store passcode input
 
@@ -86,7 +79,7 @@ def key_pressed(key):
         return
 
     # Admin functionalities start here
-    if key == "#":
+    if key == "4":
         # Log out the admin
         admin_logged_in = False
         lcd.lcd_clear()
