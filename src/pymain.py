@@ -26,7 +26,7 @@ lcd.lcd_clear()
 bot = Bot(token=BOT_TOKEN)
 
 # Admin access variables
-ADMIN_PASSCODE = "1244"  # Replace with a secure passcode
+ADMIN_PASSCODE = "1234"  # Replace with a secure passcode
 admin_logged_in = False  # Flag to track admin access
 entered_passcode = ""    # Buffer to store passcode input
 
@@ -79,7 +79,7 @@ def key_pressed(key):
         return
 
     # Admin functionalities start here
-    if key == "4":
+    if key == "#":
         # Log out the admin
         admin_logged_in = False
         lcd.lcd_clear()
@@ -131,6 +131,8 @@ def operate_servo():
     adc_value = adc.get_adc_value(1)
     angle = adc_to_servo_angle(adc_value)
     servo.set_servo_position(angle)
+
+
 
 def main():
 
