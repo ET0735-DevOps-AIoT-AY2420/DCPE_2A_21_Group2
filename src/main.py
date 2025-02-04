@@ -26,6 +26,60 @@ shared_keypad_queue = queue.Queue()
 # Database file location
 DB_FILE = "vending_machine.db"
 
+#function to check inventory before confirming order
+def check_inventory_status(drink_id):
+    """
+
+    Checks if there is enough inventory for the selected drink.
+
+    Args:
+        drink_id (int)
+
+    Returns:
+        bool: True if there is enough inventory, False otherwie.
+    """
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT inventory_id FROM menu_inventory WHERE id = ?", (drink_id,))
+        inventory_ids = cursor.fetchall()
+
+        #No inventory linked to drink
+        if not inventory_ids:
+            print(f" [ERROR] No inventory found for Drink ID {drink_id}.")
+            conn.close()
+            return False
+        
+        #Check inventory level for each required inventory
+        for inventory_id in inventory_ids:
+            cursor.execute("SELECT inventory_name, amount FROM inventory_list WHERE inventory_id = ?", (inventory_id[0],))
+            result = cursor.fetchone()
+
+            #inventory item is missing
+            if result is None:
+                print(f"[ERROR] Inventory ID {inventory_id[0]} not found in inventory_list.")
+                return False
+            
+            inventory_name, amount = result
+            
+            if amount < 2:
+                print(f"[ERROR] Not enough inventory for {inventory_name} (only{amount} left).")
+                conn.close()
+                return False
+            
+            print(f" [DEBUG] Inventory for {inventory_name} is available: {amount} units.")
+
+        conn.close()
+        return True # inventory is sufficient
+    
+    except Exception as e:
+        print(f" [ERROR] Database error: {e}")
+        return False
+    
+    finally:
+        conn.close()
+
 # Buffer for handling multi-digit keypad inputs
 input_buffer = ""
 awaiting_multi_digit_input = False
@@ -177,6 +231,15 @@ def main():
             if any(item[0] == item_id for item in menu):  # Validate item ID
                 selected_item = next(item for item in menu if item[0] == item_id)
                 initials = get_initials(selected_item[1])
+
+                #Check inventory before confirmation
+                print(f" Checking inventory for Drink #{item_id}...")
+                if not check_inventory_status(item_id):
+                    print(f" [ERROR] Not enough stock for Drink #{item_id}.")
+                    lcd.lcd_clear()
+                    lcd.lcd_display_string("Not enough stock", 1)
+                    time.sleep(2)
+                    continue #Skip the rest of the loop and go back to drink selection
 
                 # Display selected drink details
                 lcd.lcd_clear()
