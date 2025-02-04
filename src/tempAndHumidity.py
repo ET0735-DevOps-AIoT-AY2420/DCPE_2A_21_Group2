@@ -55,26 +55,26 @@ def temp_and_humidity():
 
         if 25 <= temperature <= 30:
             LED.set_output(24,GPIO.LOW)
-            lcd.lcd_display_string(f"Temp: {temperature}", 1)
-            lcd.lcd_display_string(f"Hum: {humidity}%", 2)
+            #lcd.lcd_display_string(f"Temp: {temperature}", 1) 
+            #lcd.lcd_display_string(f"Hum: {humidity}%", 2)
             print("Temp is within range")
 
         elif temperature < 25:
             LED.set_output(24,GPIO.HIGH)
-            lcd.lcd_display_string(f"Temp: {temperature}", 1)
-            lcd.lcd_display_string(f"Hum: {humidity}%", 2)
+            #lcd.lcd_display_string(f"Temp: {temperature}", 1)
+            #lcd.lcd_display_string(f"Hum: {humidity}%", 2)
             print("Temp is too low")
             send_telegram_message(f"Temp: {temperature}\n " f"Humidity: {humidity}%\n " "The temperature is too low!")
 
         elif temperature > 30:
             LED.set_output(24,GPIO.HIGH)
-            lcd.lcd_display_string(f"Temp: {temperature}", 1)
-            lcd.lcd_display_string(f"Hum: {humidity}%", 2)
+            #lcd.lcd_display_string(f"Temp: {temperature}", 1)
+            #lcd.lcd_display_string(f"Hum: {humidity}%", 2)
             print("Temp is too High")
             send_telegram_message(f"Temp: {temperature}\n " f"Humidity: {humidity}%\n " "The temperature is too high!")
 
         else:
-            lcd.lcd_display_string("Error Reading sensor", 1)
+            ##lcd.lcd_display_string("Error Reading sensor", 1)
             print("Error: Sensor data invalid")
 
 # Main function

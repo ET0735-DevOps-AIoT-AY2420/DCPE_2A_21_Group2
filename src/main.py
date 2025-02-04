@@ -1,7 +1,10 @@
 import time
 from threading import Thread
 import queue
+import sqlite3
+import prepare
 
+# Importing hardware abstraction libraries (HALs)
 from hal import hal_led as led
 from hal import hal_lcd as LCD
 from hal import hal_adc as adc
@@ -17,23 +20,116 @@ from hal import hal_usonic as usonic
 from hal import hal_dc_motor as dc_motor
 from hal import hal_accelerometer as accel
 
-#Empty list to store sequence of keypad presses
+# Queue for storing keypad inputs
 shared_keypad_queue = queue.Queue()
 
+# Database file location
+DB_FILE = "vending_machine.db"
 
+# Buffer for handling multi-digit keypad inputs
+input_buffer = ""
+awaiting_multi_digit_input = False
 
-
-#Call back function invoked when any key on keypad is pressed
+# Callback function for handling keypress events from the keypad
 def key_pressed(key):
-    shared_keypad_queue.put(key)
+    """
+    Handles keypress events and manages input buffer for multi-digit inputs.
+    """
+    global input_buffer, awaiting_multi_digit_input
+    if awaiting_multi_digit_input and key in range(10):  # If awaiting input, add digits to buffer
+        input_buffer += str(key)
+    elif awaiting_multi_digit_input and key == "#":  # Confirm multi-digit input with '#'
+        if input_buffer:  # Add to queue only if input exists
+            shared_keypad_queue.put(input_buffer)
+            input_buffer = ""
+    elif awaiting_multi_digit_input and key == "*":  # Clear buffer on '*'
+        input_buffer = ""
+    elif not awaiting_multi_digit_input and key in range(10):  # Directly handle single-digit inputs
+        shared_keypad_queue.put(str(key))
 
+# Fetch available menu items from the database
+def fetch_menu():
+    """
+    Retrieves all available menu items (availability = 1) from the database.
+    Returns:
+        list: A list of tuples containing item ID, name, price, and availability.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, price, availability FROM menu WHERE availability = 1")
+    menu = cursor.fetchall()
+    conn.close()
+    return menu
+
+# Insert a new order into the database
+def insert_order(item_id, source):
+    """
+    Inserts a new order into the database.
+    Args:
+        item_id (int): ID of the selected menu item.
+        source (str): Source of the order (e.g., "local").
+    Returns:
+        int: The order ID of the newly created order.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO orders (item_id, source) VALUES (?, ?)", (item_id, source))
+    conn.commit()
+    order_id = cursor.lastrowid  # Get the ID of the inserted order
+    conn.close()
+    return order_id
+
+# Update the status of an order in the database
+def update_order_status(order_id, status):
+    """
+    Updates the status of a specific order in the database.
+    Args:
+        order_id (int): ID of the order.
+        status (str): New status (e.g., "Completed", "Preparing").
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE orders SET status = ? WHERE order_id = ?", (status, order_id))
+    conn.commit()
+    conn.close()
+
+# Fetch the next pending order from the database
+def fetch_next_order():
+    """
+    Retrieves the next pending order (status = 'Pending') from the database.
+    Returns:
+        tuple: A tuple containing order ID and item ID of the next order.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT order_id, item_id FROM orders WHERE status = 'Pending' ORDER BY timestamp LIMIT 1")
+    order = cursor.fetchone()
+    conn.close()
+    return order
+
+# Generate initials for drink names
+def get_initials(name):
+    """
+    Creates initials from a drink's name (e.g., "Classic Coffee" -> "CC").
+    Args:
+        name (str): The name of the drink.
+    Returns:
+        str: The initials of the drink name.
+    """
+    words = name.split()
+    initials = ''.join(word[0].upper() for word in words)
+    return initials
 
 def main():
-    #initialization of HAL modules
+    """
+    Main function to handle the vending machine's operations.
+    """
+    global input_buffer, awaiting_multi_digit_input
+
+    # Initialize hardware modules
     led.init()
     adc.init()
     buzzer.init()
-  
     moisture_sensor.init()
     input_switch.init()
     ir_sensor.init()
@@ -44,144 +140,106 @@ def main():
     dc_motor.init()
     accelerometer = accel.init()
 
+    # Initialize keypad and start a thread for key detection
     keypad.init(key_pressed)
     keypad_thread = Thread(target=keypad.get_key)
     keypad_thread.start()
 
+    # Initialize LCD display
     lcd = LCD.lcd()
     lcd.lcd_clear()
 
-    lcd.lcd_display_string("Mini-Project", 1)
-    lcd.lcd_display_string("Dignostic Tests", 2)
-
+    lcd.lcd_display_string("Smart Vending", 1)
+    lcd.lcd_display_string("System Ready", 2)
     time.sleep(3)
 
-    print("press 0 to test accelerometer")
-    print("press 1 to test LED")
-    print("press 2 to test potentiometer")
-    print("press 3 to test buzzer")
-    print("press 4 to test moizture sensor")
-    print("press 5 to test ultrasonic sensor")  
-    print("press 6 to test rfid reader") 
-    print("press 7 to test LDR") 
-    print("press 8 to test servo & DC motor") 
-    print("press 9 to test temp & humidity")   
-    print("press # to test slide switch")  
-    print("print * to test IR sensor")
-
-
-    while(True):
+    while True:
         lcd.lcd_clear()
-        lcd.lcd_display_string("press any key!", 1)
-     
+        lcd.lcd_display_string("Enter Item #", 1)
 
-        print("wait for key")
-        keyvalue= shared_keypad_queue.get()
+        # Display menu on the terminal and LCD
+        menu = fetch_menu()
+        for item in menu:
+            print(f"{item[0]}. {item[1]} - ${item[2]:.2f}")
 
-        print("key value ", keyvalue)
-        
+        # Wait for keypad input
+        input_buffer = ""
+        awaiting_multi_digit_input = True
+        while not shared_keypad_queue.qsize():
+            lcd.lcd_display_string(f"Input: {input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
+            time.sleep(0.1)
 
-        if(keyvalue == 1): 
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)
-            lcd.lcd_display_string("LED TEST ", 2)
-            led.set_output(1, 1)
-            time.sleep(2)
-            led.set_output(1, 0)
-            time.sleep(2)
+        keyvalue = shared_keypad_queue.get()
+        awaiting_multi_digit_input = False
 
-        elif (keyvalue == 2):
-            pot_val = adc.get_adc_value(1)
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)
-            lcd.lcd_display_string("potval " +str(pot_val), 2)
-            time.sleep(2)
+        try:
+            item_id = int(keyvalue)
+            if any(item[0] == item_id for item in menu):  # Validate item ID
+                selected_item = next(item for item in menu if item[0] == item_id)
+                initials = get_initials(selected_item[1])
 
-        elif (keyvalue == 3):
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)
-            lcd.lcd_display_string("Buzzer TEST ", 2)
-            buzzer.beep(0.5, 0.5, 1)
+                # Display selected drink details
+                lcd.lcd_clear()
+                lcd.lcd_display_string(f"Selected: {initials}", 1)
+                lcd.lcd_display_string(f"Price: ${selected_item[2]:.2f}", 2)
+                buzzer.beep(0.2, 0.1, 1)
+                time.sleep(2)
 
-        elif (keyvalue == 4):
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)
-            sensor_val = moisture_sensor.read_sensor()
-            lcd.lcd_display_string("moisture " +str(sensor_val), 2)
-            time.sleep(2)
+                # Confirm order
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Confirm?", 1)
+                lcd.lcd_display_string("1-Yes 2-No", 2)
+                confirm_key = shared_keypad_queue.get()
+                buzzer.beep(0.1, 0.1, 1)
 
-        elif (keyvalue == 5):
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)            
-            sensor_val = usonic.get_distance()
-            lcd.lcd_display_string("distance " +str(sensor_val), 2)
-            time.sleep(2)   
+                if confirm_key == "1":  # User confirms the order
+                    order_id = insert_order(item_id, "local")
+                    lcd.lcd_clear()
+                    lcd.lcd_display_string(f"Preparing #{item_id}", 1)
 
-        elif (keyvalue == 6):
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)           
-            id = reader.read_id_no_block()
-            id = str(id)
-        
-            if id != "None":
-                print("RFID card ID = " + id)
-                # Display RFID card ID on LCD line 2
-                lcd.lcd_display_string(id, 2) 
-            time.sleep(2)   
-
-        elif (keyvalue == 7):
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)            
-            pot_val = adc.get_adc_value(0)
-            lcd.lcd_display_string("LDR " +str(pot_val), 2)
-            time.sleep(2)
-
-        elif (keyvalue == 8):
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)     
-            lcd.lcd_display_string("servo/DC test ", 2)  
-            servo.set_servo_position(20)
-            time.sleep(1)  
-            servo.set_servo_position(80)
-            time.sleep(1)     
-            servo.set_servo_position(120)
-            time.sleep(1)            
-            dc_motor.set_motor_speed(50)
-            time.sleep(4)   
-            dc_motor.set_motor_speed(0)
-            time.sleep(2) 
-
-        elif (keyvalue == 9):
-            temperature, humidity = temp_humid_sensor.read_temp_humidity()
-            lcd.lcd_display_string("Temperature "  +str(temperature), 1)  
-            lcd.lcd_display_string("Humidity "  +str(humidity), 2) 
-            time.sleep(2)  
-
-        elif (keyvalue == "#"):
-            sw_switch = input_switch.read_slide_switch()
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)    
-            lcd.lcd_display_string("switch "  +str(sw_switch), 2) 
-            time.sleep(2)  
-        
-        elif (keyvalue == "*"):
-            ir_value = ir_sensor.get_ir_sensor_state()
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1)    
-            lcd.lcd_display_string("ir sensor "  +str(ir_value), 2) 
-            time.sleep(2)  
-        
-        elif (keyvalue == 0):
-            x_axis, y_axis, z_axis = accelerometer.get_3_axis_adjusted()
-            lcd.lcd_display_string("key pressed "  +str(keyvalue), 1) 
-            lcd.lcd_display_string("x " +str(x_axis), 2) 
-            time.sleep(2) 
+                    # Call the preparation function
+                    if prepare.prepare_drink(item_id):
+                        update_order_status(order_id, "Completed")
+                        lcd.lcd_clear()
+                        lcd.lcd_display_string("Drink Ready!", 1)
+                    else:
+                        lcd.lcd_clear()
+                        lcd.lcd_display_string("Prep Failed", 1)
+                    time.sleep(2)
+                elif confirm_key == "2":
+                    lcd.lcd_clear()
+                    lcd.lcd_display_string("Cancelled", 1)
+                    time.sleep(2)
+            else:
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Invalid Item", 1)
+                buzzer.beep(0.2, 0.1, 2)
+                time.sleep(2)
+        except ValueError:
             lcd.lcd_clear()
-            lcd.lcd_display_string("y " +str(y_axis), 1) 
-            lcd.lcd_display_string("z " +str(z_axis), 2) 
-            print(x_axis)
-            print(y_axis)
-            print(z_axis)  
+            lcd.lcd_display_string("Invalid Input", 1)
+            buzzer.beep(0.2, 0.1, 2)
+            time.sleep(2)
 
-            time.sleep(2)  
-       
+        # Handle pending orders
+        next_order = fetch_next_order()
+        if next_order:
+            order_id, item_id = next_order
+            selected_item = next(item for item in menu if item[0] == item_id)
+
+            lcd.lcd_clear()
+            lcd.lcd_display_string(f"Preparing #{item_id}", 1)
+            update_order_status(order_id, "Preparing")
+
+            if prepare.prepare_drink(item_id):
+                update_order_status(order_id, "Completed")
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Completed", 1)
+            else:
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Prep Failed", 1)
+            time.sleep(3)
 
 
-        time.sleep(1)
-
-
-
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
