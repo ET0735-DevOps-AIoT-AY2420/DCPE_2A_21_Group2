@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Drink</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Reduce image size by 50% */
+        .drink-image {
+            width: 50%;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Order {{ drink["name"] }}</h1>
+        <img class="drink-image" src="/static/images/{{ drink['image'] }}" alt="{{ drink['name'] }}">
+        <p class="price">Price: ${{ drink["price"] }}</p>
+        <button onclick="confirmOrder({{ drink['id'] }}, '{{ drink['name'] }}', {{ drink['price'] }})">Order Now</button>
+    </div>
+
+    <script>
+        function confirmOrder(drinkId, drinkName, drinkPrice) {
+            let confirmAction = confirm(`Confirm order for ${drinkName} ($${drinkPrice.toFixed(2)})?`);
+            if (!confirmAction) return;
+
+            fetch('/order', {
+                method: 'POST',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ drink_id: drinkId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                window.location.href = "/";
+            })
+            .catch(error => console.error("Order failed:", error));
+        }
+    </script>
+</body>
+</html>

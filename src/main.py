@@ -1,6 +1,8 @@
 import time
+from datetime import datetime
 from threading import Thread
 import queue
+import pytz
 import sqlite3
 import prepare
 import requests
@@ -26,6 +28,13 @@ shared_keypad_queue = queue.Queue()
 
 # Database file location
 DB_FILE = "vending_machine.db"
+
+# Define Singapore Time Zone
+SGT = pytz.timezone('Asia/Singapore')
+
+# Function to Get Current Time in Singapore Time
+def get_sg_time():
+    return datetime.now(SGT).strftime('%Y-%m-%d %H:%M:%S')
 
 #function to check inventory before confirming order
 def check_inventory_status(drink_id):
@@ -128,7 +137,8 @@ def insert_order(item_id, source):
     """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO orders (item_id, source) VALUES (?, ?)", (item_id, source))
+    cursor.execute("INSERT INTO orders (item_id, source, status, timestamp) VALUES (?, 'local', 'Pending', ?)", 
+               (item_id, get_sg_time()))
     conn.commit()
     order_id = cursor.lastrowid  # Get the ID of the inserted order
     conn.close()

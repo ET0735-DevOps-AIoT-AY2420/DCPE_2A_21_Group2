@@ -62,6 +62,19 @@ def get_menu():
     ]
     return jsonify(menu)
 
+#Route for Order Page
+@app.route('/order/<int:drink_id>', methods=['GET'])
+def order_page(drink_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, price, image FROM menu WHERE id = ?", (drink_id,))
+    drink = cursor.fetchone()
+    conn.close()
+
+    if not drink:
+        return "Drink not found", 404
+
+    return render_template("order.html", drink=drink)
 
 # Place Order
 @app.route('/order', methods=['POST'])
