@@ -34,6 +34,7 @@ The **Smart Drink Vending Machine** is an innovative vending system designed to 
 ---
 
 ## 🏗️ System Architecture
+
 The system is built using:
 - **Hardware Components**:
   - Raspberry Pi (Main controller)
