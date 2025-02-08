@@ -90,28 +90,30 @@ def initialize_database():
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER NOT NULL,
-            source TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Pending',
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES menu (id)
-        )
+    CREATE TABLE IF NOT EXISTS orders (
+        order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Pending',
+        timestamp TEXT NOT NULL,  -- Store time as Singapore Time
+        FOREIGN KEY (item_id) REFERENCES menu (id)
+    )
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sales (
-            sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER NOT NULL,
-            item_id INTEGER NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            price REAL NOT NULL,
-            source TEXT NOT NULL,
-            FOREIGN KEY (item_id) REFERENCES menu (id),
-            FOREIGN KEY (order_id) REFERENCES orders (order_id)
-        )
+    CREATE TABLE IF NOT EXISTS sales (
+        sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        timestamp TEXT NOT NULL,  -- Store time as Singapore Time
+        price REAL NOT NULL,
+        source TEXT NOT NULL,
+        FOREIGN KEY (item_id) REFERENCES menu (id),
+        FOREIGN KEY (order_id) REFERENCES orders (order_id)
+    )
     """)
+
+
 
     # Create inventory_list table
     cursor.execute("""
