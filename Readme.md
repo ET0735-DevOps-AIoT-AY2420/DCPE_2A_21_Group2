@@ -76,7 +76,6 @@ Supports RFID card payments, QR codes, and future payment integrations.
 ---
 
 ## 🤝 Contributors
-
 - **[KYAW NYI NYI HAN]** 
 - **[ALARCIO JAESON MATHEW BALICTAR ]** 
 - **[SU MYAT MON]** 
