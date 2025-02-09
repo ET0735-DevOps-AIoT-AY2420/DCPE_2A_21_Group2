@@ -1,117 +1,128 @@
 import stripe
 import sqlite3
-from flask import Flask, request, render_template
+import RPi.GPIO as GPIO
+from flask import Flask, request, render_template, jsonify
+import time
+import atexit
+
+# Import the HAL file for RFID support
+from hal.hal_rfid_reader import SimpleMFRC522
 
 app = Flask(__name__)
-
 DB_FILE = "vending_machine.db"
 
-# Your Stripe secret key
+# Initialize RFID Reader from HAL
+reader = SimpleMFRC522()
+
+# GPIO Setup (Avoids Conflicts)
+GPIO.setwarnings(False)
+if GPIO.getmode() is None:
+    GPIO.setmode(GPIO.BCM)
+
+# Vending Machine Relay GPIO Pin
+VENDING_RELAY_PIN = 17
+GPIO.setup(VENDING_RELAY_PIN, GPIO.OUT)
+
+# Ensure GPIO cleanup on exit
+atexit.register(GPIO.cleanup)
+
+# Stripe API Key
 stripe.api_key = "sk_test_51Qh9kW06aB8tsnc6hM4v2C48GHGTHJEhDr6iqSw471hz1UmloXMf3wq88Qw2vC1HzIgOEHTOlxfFPnromgpf964R00vHQZySAx"
 
-# Define your DRINKS_MENU here (or fetch from DB if preferred)
+# Drinks Menu
 DRINKS_MENU = [
-    # Hot Beverages
-    {"name": "Classic Coffee", "category": "Hot Beverage", "price": 2.50, "availability": True, "image": "classic_coffee.jpg"},
-    {"name": "Strawberry Latte", "category": "Hot Beverage", "price": 3.00, "availability": True, "image": "strawberry_latte.jpg"},
-    {"name": "Lychee Milk Tea", "category": "Hot Beverage", "price": 3.50, "availability": True, "image": "lychee_milk_tea.jpg"},
-    {"name": "Mocha Strawberry Twist", "category": "Hot Beverage", "price": 4.00, "availability": True, "image": "mocha_strawberry_twist.jpg"},
-    {"name": "Lime Infused Coffee", "category": "Hot Beverage", "price": 2.75, "availability": True, "image": "lime_infused_coffee.jpg"},
-
-    # Cold Beverages
-    {"name": "Iced Coffee", "category": "Cold Beverage", "price": 3.00, "availability": True, "image": "iced_coffee.jpg"},
-    {"name": "Strawberry Iced Latte", "category": "Cold Beverage", "price": 3.50, "availability": True, "image": "strawberry_iced_latte.jpg"},
-    {"name": "Lychee Cooler", "category": "Cold Beverage", "price": 3.75, "availability": True, "image": "lychee_cooler.jpg"},
-    {"name": "Lime Lychee Refresher", "category": "Cold Beverage", "price": 3.25, "availability": True, "image": "lime_lychee_refresher.jpg"},
-    {"name": "Coffee Berry Chill", "category": "Cold Beverage", "price": 4.50, "availability": True, "image": "coffee_berry_chill.jpg"},
-
-    # Soda Mixes
-    {"name": "Strawberry Soda Fizz", "category": "Soda Mix", "price": 3.00, "availability": True, "image": "strawberry_soda_fizz.jpg"},
-    {"name": "Lime Sparkle", "category": "Soda Mix", "price": 3.00, "availability": True, "image": "lime_sparkle.jpg"},
-    {"name": "Lychee Lime Spritz", "category": "Soda Mix", "price": 3.50, "availability": True, "image": "lychee_lime_spritz.jpg"},
-    {"name": "Coffee Soda Kick", "category": "Soda Mix", "price": 4.00, "availability": True, "image": "coffee_soda_kick.jpg"},
-    {"name": "Strawberry Lychee Sparkler", "category": "Soda Mix", "price": 4.25, "availability": True, "image": "strawberry_lychee_sparkler.jpg"},
-
-    # Smoothies
-    {"name": "Strawberry Milk Smoothie", "category": "Smoothie", "price": 3.50, "availability": True, "image": "strawberry_milk_smoothie.jpg"},
-    {"name": "Lychee Delight Smoothie", "category": "Smoothie", "price": 3.75, "availability": True, "image": "lychee_delight_smoothie.jpg"},
-    {"name": "Tropical Lime Smoothie", "category": "Smoothie", "price": 4.00, "availability": True, "image": "tropical_lime_smoothie.jpg"},
-    {"name": "Strawberry Coffee Smoothie", "category": "Smoothie", "price": 4.50, "availability": True, "image": "strawberry_coffee_smoothie.jpg"},
-    {"name": "Lychee Strawberry Frost", "category": "Smoothie", "price": 4.25, "availability": True, "image": "lychee_strawberry_frost.jpg"},
+    {"name": "Classic Coffee", "price": 2.50},
+    {"name": "Strawberry Latte", "price": 3.00},
+    {"name": "Lychee Milk Tea", "price": 3.50},
+    {"name": "Mocha Strawberry Twist", "price": 4.00},
+    {"name": "Lime Infused Coffee", "price": 2.75},
 ]
 
 def get_db_connection():
     return sqlite3.connect(DB_FILE)
 
-@app.route("/")
-def index():
-    # Render index.html with DRINKS_MENU if you want to iterate or pass data
-    return render_template("index.html", drinks=DRINKS_MENU)
+# Function to trigger vending mechanism
+def dispense_drink():
+    print("Dispensing drink...")
+    GPIO.output(VENDING_RELAY_PIN, GPIO.HIGH)
+    time.sleep(2)
+    GPIO.output(VENDING_RELAY_PIN, GPIO.LOW)
+    print("Drink dispensed.")
 
-@app.route("/create-checkout-session", methods=["POST"])
-def create_checkout_session():
+# Route: RFID Payment
+@app.route("/rfid-pay", methods=["POST"])
+def rfid_pay():
     try:
-        # Parse JSON from the POST body (not request.form)
+        print("Waiting for RFID scan...")
+        uid, text = reader.read()  # Read RFID tag
+        print(f"RFID Tag Detected: {uid}")
+
         data = request.get_json()
         item_index = int(data["item_index"])
-        selected_item = DRINKS_MENU[item_index]
 
-        # Convert item price from dollars to cents
-        price_in_cents = int(selected_item["price"] * 100)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, price FROM menu WHERE id = ?", (item_index + 1,))
+        item = cursor.fetchone()
 
-        # Create a Stripe Checkout Session for the selected item
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": selected_item["name"],
-                    },
-                    "unit_amount": price_in_cents,
-                },
-                "quantity": 1,
-            }],
-            mode="payment",
-            # Include the item_index in the success URL so you know which item to record
-            success_url=f"http://localhost:5000/success?item_index={item_index}",
-            cancel_url="http://localhost:5000/cancel",
-        )
+        if not item:
+            return jsonify({"error": "Invalid item selection"}), 400
 
-        # Return JSON with the session URL
-        return {"url": session.url}
+        item_id, price = item
+
+        cursor.execute("SELECT balance FROM rfid_users WHERE rfid_tag_id = ?", (str(uid),))
+        user = cursor.fetchone()
+
+        if user:
+            balance = user[0]
+            if balance >= price:
+                new_balance = balance - price
+                cursor.execute("UPDATE rfid_users SET balance = ? WHERE rfid_tag_id = ?", (new_balance, str(uid)))
+                cursor.execute("INSERT INTO sales (item_id, price, source) VALUES (?, ?, ?)", (item_id, price, "RFID"))
+                conn.commit()
+
+                dispense_drink()
+
+                return jsonify({"message": "Payment successful", "new_balance": new_balance}), 200
+            else:
+                return jsonify({"error": "Insufficient balance. Please reload."}), 400
+        else:
+            return jsonify({"error": "Card not registered"}), 404
+
     except Exception as e:
-        # Return an error string if something goes wrong
-        return str(e), 400
+        return jsonify({"error": str(e)}), 500
 
-@app.route("/success")
-def success():
-    # Get the item_index from the query string
-    item_index = request.args.get("item_index", default=0, type=int)
-    selected_item = DRINKS_MENU[item_index]
+    finally:
+        conn.close()
 
-    # Record the purchase in the 'sales' table
-    conn = get_db_connection()
-    cursor = conn.cursor()
+# Route: Reload RFID Balance
+@app.route("/rfid-reload", methods=["POST"])
+def rfid_reload():
+    try:
+        uid, text = reader.read()  # Read RFID tag
+        data = request.get_json()
+        amount = float(data["amount"])
 
-    cursor.execute("""
-        INSERT INTO sales (item_id, price, source)
-        VALUES (?, ?, ?)
-    """, (
-        item_index + 1,         # or a real DB ID if you have one
-        selected_item["price"], # store the actual price
-        "Stripe"
-    ))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT balance FROM rfid_users WHERE rfid_tag_id = ?", (str(uid),))
+        user = cursor.fetchone()
 
-    conn.commit()
-    conn.close()
+        if user:
+            new_balance = user[0] + amount
+            cursor.execute("UPDATE rfid_users SET balance = ? WHERE rfid_tag_id = ?", (new_balance, str(uid)))
+            conn.commit()
+            return jsonify({"message": f"Balance reloaded. New balance: ${new_balance}"}), 200
+        else:
+            cursor.execute("INSERT INTO rfid_users (rfid_tag_id, username, balance) VALUES (?, ?, ?)", (str(uid), "New User", amount))
+            conn.commit()
+            return jsonify({"message": f"New RFID card registered with balance: ${amount}"}), 201
 
-    # Render a success template
-    return render_template("success.html", item=selected_item)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-@app.route("/cancel")
-def cancel():
-    return "Payment canceled"
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
     app.run(debug=True)
