@@ -1,4 +1,5 @@
 import time
+import sqlite3
 from hal import hal_servo as servo
 from hal import hal_buzzer as buzzer
 from hal import hal_led as led
@@ -9,6 +10,48 @@ servo.init()
 buzzer.init()
 led.init()
 
+# Database File Location
+DB_FILE = "vending_machine.db"
+
+def update_inventory(drink_id):
+    """
+    Deducts 2 units from the respective inventories for the selected drink.
+
+    Args: 
+        drink_id(int)
+
+    Returns:
+        bool: True if inventory updated successfully, False otherwise.
+
+    """
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+
+        # Get the inventory items associated with the drink
+        cursor.execute("SELECT inventory_id FROM menu_inventory WHERE id = ?", (drink_id,))
+        inventory_ids = cursor.fetchall()
+
+        # No inventory linked to the drink
+        if not inventory_ids:
+            print(f" [ERROR] No inventory found for Drink ID {drink_id}.")
+            conn.close()
+            return False
+        
+        #Deduch 2 units from respective inventories
+        for inventory_id in inventory_ids:
+            cursor.execute("UPDATE inventory_list SET amount = amount - 2 WHERE inventory_id = ?", (inventory_id[0],))
+
+        conn.commit()
+        conn.close()
+            
+        print(" [DEBUG] Inventory updated successfully after preparation.")
+        return True
+    except Exception as e:
+        print(f" [ERROR] Database error while updating inventory: {e}")
+        return False
+    
 def prepare_drink(drink_id):
     """
     Prepares a drink using the servo motor, buzzer, and LED.
@@ -53,7 +96,13 @@ def prepare_drink(drink_id):
         sleep(1)
     
         print(f"Drink #{drink_id} is ready!")
+
+        if update_inventory(drink_id):
+            print(f" [DEBUG] Inventory updated.")
+        else:
+            print(f" [ERROR] Failed to update inventory.")
         return True
+    
     except Exception as e:
         print(f"Error during preparation: {e}")
         return False
