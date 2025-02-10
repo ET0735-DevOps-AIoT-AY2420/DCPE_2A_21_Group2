@@ -5,77 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://kit.fontawesome.com/a076d05399.js"></script> <!-- For icons -->
 </head>
 <body>
-    <div class="container">
+    <!-- Sidebar Navigation -->
+    <div class="sidebar">
+        <h2>Admin Panel</h2>
+        <ul>
+            <li><a href="{{ url_for('admin_dashboard') }}"><i class="fa fa-home"></i> Dashboard</a></li>
+            <li><a href="{{ url_for('inventory_list') }}"><i class="fa fa-box"></i> Modify Inventory</a></li>
+            <li><a href="{{ url_for('admin_logs') }}"><i class="fa fa-history"></i> Admin Logs</a></li>
+            <li><a href="{{ url_for('logout') }}"><i class="fa fa-sign-out-alt"></i> Logout</a></li>
+        </ul>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
         <h1>Admin Dashboard</h1>
 
-        <!-- Pending Orders Section -->
-        <div>
-            <h2>Pending Orders</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Order ID</th>
-                        <th>Drink ID</th>
-                        <th>Drink Name</th>
-                        <th>Quantity</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for order in pending_orders %}
-                        <tr>
-                            <td>{{ order[0] }}</td>
-                            <td>{{ order[1] }}</td>
-                            <td>{{ order[2] }}</td>
-                            <td>{{ order[4] }}</td> <!-- Assuming quantity is stored in column 4 -->
-                            <td>{{ order[3] }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <!-- Pending Orders -->
+        <h2>Pending Orders</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Order ID</th>
+                    <th>Drink ID</th>
+                    <th>Drink Name</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in pending_orders %}
+                <tr>
+                    <td>{{ order[0] }}</td>  <!-- Order ID -->
+                    <td>{{ order[1] }}</td>  <!-- Drink ID -->
+                    <td>{{ order[2] }}</td>  <!-- Drink Name -->
+                    <td>1</td>  <!-- Default quantity (if quantity isn't stored in DB) -->
+                    <td>{{ order[3] }}</td>  <!-- Status -->
+                </tr>                
+                {% endfor %}
+            </tbody>
+        </table>
 
-        <!-- Sales Summary Section -->
-        <div>
-            <h2>Total Sales</h2>
+        <!-- Sales Filter -->
+        <div class="filter-sales">
             <form method="POST" action="{{ url_for('admin_dashboard') }}">
+                <label for="date_filter">Filter Sales:</label>
                 <select name="date_filter">
                     <option value="all">All Time</option>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                 </select>
-                <button type="submit">Filter Sales</button>
+                <button type="submit"><i class="fa fa-filter"></i> Filter Sales</button>
             </form>
-            <p>${{ total_sales }}</p>
         </div>
 
-        <!-- Inventory Section -->
-        <div>
-            <h2>Inventory</h2>
-            <table>
-                <thead>
+        <!-- Total Sales -->
+        <h2>Total Sales: ${{ total_sales }}</h2>
+
+        <!-- Inventory Table -->
+        <h2>Inventory</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Inventory Name</th>
+                    <th>Amount Remaining</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in inventory %}
                     <tr>
-                        <th>Inventory Name</th>
-                        <th>Amount Remaining</th>
-                        <th>Action</th>
+                        <td>{{ item[0] }}</td>
+                        <td>{{ item[1] }} remaining</td>
+                        <td><a href="{{ url_for('modify_inventory', inventory_name=item[0]) }}"><i class="fa fa-edit"></i> Modify</a></td>
                     </tr>
-                </thead>
-                <tbody>
-                    {% for item in inventory %}
-                        <tr>
-                            <td>{{ item[0] }}</td>
-                            <td>{{ item[1] }} remaining</td>
-                            <td><a href="{{ url_for('modify_inventory', inventory_name=item[0]) }}">Modify</a></td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+                {% endfor %}
+            </tbody>
+        </table>
 
-        <a href="{{ url_for('logout') }}">Logout</a>
     </div>
 </body>
 </html>
