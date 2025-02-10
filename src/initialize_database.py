@@ -1,112 +1,200 @@
+import os
 import sqlite3
+import bcrypt
+import logging
 
-# Define database file
-DB_FILE = "vending_machine.db"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Drinks menu data with images
+DB_FILE = os.environ.get("DB_FILE", "vending_machine.db")
+
 DRINKS_MENU = [
-    # Hot Beverages
-    {"name": "Classic Coffee", "category": "Hot Beverage", "price": 2.50, "availability": True, "image": "classic_coffee.jpg"},
-    {"name": "Strawberry Latte", "category": "Hot Beverage", "price": 3.00, "availability": True, "image": "strawberry_latte.jpg"},
-    {"name": "Lychee Milk Tea", "category": "Hot Beverage", "price": 3.50, "availability": True, "image": "lychee_milk_tea.jpg"},
-    {"name": "Mocha Strawberry Twist", "category": "Hot Beverage", "price": 4.00, "availability": True, "image": "mocha_strawberry_twist.jpg"},
-    {"name": "Lime Infused Coffee", "category": "Hot Beverage", "price": 2.75, "availability": True, "image": "lime_infused_coffee.jpg"},
-
-    # Cold Beverages
-    {"name": "Iced Coffee", "category": "Cold Beverage", "price": 3.00, "availability": True, "image": "iced_coffee.jpg"},
-    {"name": "Strawberry Iced Latte", "category": "Cold Beverage", "price": 3.50, "availability": True, "image": "strawberry_iced_latte.jpg"},
-    {"name": "Lychee Cooler", "category": "Cold Beverage", "price": 3.75, "availability": True, "image": "lychee_cooler.jpg"},
-    {"name": "Lime Lychee Refresher", "category": "Cold Beverage", "price": 3.25, "availability": True, "image": "lime_lychee_refresher.jpg"},
-    {"name": "Coffee Berry Chill", "category": "Cold Beverage", "price": 4.50, "availability": True, "image": "coffee_berry_chill.jpg"},
-
-    # Soda Mixes
-    {"name": "Strawberry Soda Fizz", "category": "Soda Mix", "price": 3.00, "availability": True, "image": "strawberry_soda_fizz.jpg"},
-    {"name": "Lime Sparkle", "category": "Soda Mix", "price": 3.00, "availability": True, "image": "lime_sparkle.jpg"},
-    {"name": "Lychee Lime Spritz", "category": "Soda Mix", "price": 3.50, "availability": True, "image": "lychee_lime_spritz.jpg"},
-    {"name": "Coffee Soda Kick", "category": "Soda Mix", "price": 4.00, "availability": True, "image": "coffee_soda_kick.jpg"},
-    {"name": "Strawberry Lychee Sparkler", "category": "Soda Mix", "price": 4.25, "availability": True, "image": "strawberry_lychee_sparkler.jpg"},
-
-    # Smoothies
-    {"name": "Strawberry Milk Smoothie", "category": "Smoothie", "price": 3.50, "availability": True, "image": "strawberry_milk_smoothie.jpg"},
-    {"name": "Lychee Delight Smoothie", "category": "Smoothie", "price": 3.75, "availability": True, "image": "lychee_delight_smoothie.jpg"},
-    {"name": "Tropical Lime Smoothie", "category": "Smoothie", "price": 4.00, "availability": True, "image": "tropical_lime_smoothie.jpg"},
-    {"name": "Strawberry Coffee Smoothie", "category": "Smoothie", "price": 4.50, "availability": True, "image": "strawberry_coffee_smoothie.jpg"},
-    {"name": "Lychee Strawberry Frost", "category": "Smoothie", "price": 4.25, "availability": True, "image": "lychee_strawberry_frost.jpg"},
+    {
+        "name": "Classic Coffee",
+        "category": "Hot Beverage",
+        "price": 2.50,
+        "availability": True,
+        "image": "classic_coffee.jpg",
+    },
+    {
+        "name": "Strawberry Latte",
+        "category": "Hot Beverage",
+        "price": 3.00,
+        "availability": True,
+        "image": "strawberry_latte.jpg",
+    },
+    {
+        "name": "Lychee Milk Tea",
+        "category": "Hot Beverage",
+        "price": 3.50,
+        "availability": True,
+        "image": "lychee_milk_tea.jpg",
+    },
+    {
+        "name": "Mocha Strawberry Twist",
+        "category": "Hot Beverage",
+        "price": 4.00,
+        "availability": True,
+        "image": "mocha_strawberry_twist.jpg",
+    },
+    {
+        "name": "Lime Infused Coffee",
+        "category": "Hot Beverage",
+        "price": 2.75,
+        "availability": True,
+        "image": "lime_infused_coffee.jpg",
+    },
 ]
 
-# Example RFID user data for testing
-# We have added your test RFID tag "26364129254" here
-RFID_USERS = [
-    {"rfid_tag_id": "26364129254", "username": "test_user", "balance": 10.00}
+INVENTORY_LIST = [
+    {"inventory_name": "water", "amount": 10},
+    {"inventory_name": "ice", "amount": 10},
+    {"inventory_name": "milk", "amount": 10},
+    {"inventory_name": "coffee", "amount": 10},
+    {"inventory_name": "tea", "amount": 10},
+    {"inventory_name": "strawberry", "amount": 10},
+    {"inventory_name": "lime", "amount": 10},
+    {"inventory_name": "lychee", "amount": 10},
+    {"inventory_name": "soda", "amount": 10},
 ]
+
+MENU_INVENTORY_MAPPING = {
+    "Classic Coffee": ["water", "coffee"],
+    "Strawberry Latte": ["milk", "coffee", "strawberry"],
+    "Lychee Milk Tea": ["milk", "lychee", "tea"],
+    "Mocha Strawberry Twist": ["water", "milk", "coffee", "strawberry"],
+    "Lime Infused Coffee": ["coffee", "lime"],
+    "Iced Coffee": ["water", "coffee", "ice"],
+    "Strawberry Iced Latte": ["coffee", "milk", "strawberry", "ice"],
+    "Lychee Cooler": ["water", "lychee", "ice"],
+    "Lime Lychee Refresher": ["water", "lime", "lychee", "ice"],
+    "Coffee Berry Chill": ["coffee", "strawberry", "ice"],
+}
 
 def initialize_database():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            # Enable foreign keys in SQLite
+            conn.execute("PRAGMA foreign_keys = ON;")
+            cursor = conn.cursor()
 
-    # Create tables
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS menu (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            category TEXT NOT NULL,
-            price REAL NOT NULL,
-            availability BOOLEAN NOT NULL,
-            image TEXT
-        )
-    """)
+            # Create the users table if it doesn't exist
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
+            )
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    """
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT NOT NULL UNIQUE,
+                        password BLOB NOT NULL,
+                        credit REAL NOT NULL DEFAULT 0.0,
+                        telegram_started INTEGER DEFAULT 0
+                    )
+                    """
+                )
+                logger.info("Created users table.")
+            else:
+                cursor.execute("PRAGMA table_info(users);")
+                columns = [col_info[1] for col_info in cursor.fetchall()]
+                if "credit" not in columns:
+                    cursor.execute(
+                        "ALTER TABLE users ADD COLUMN credit REAL NOT NULL DEFAULT 0.0;"
+                    )
+                    logger.info("Added credit column to users table.")
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER NOT NULL,
-            source TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Pending',
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES menu (id)
-        )
-    """)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS menu (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    availability BOOLEAN NOT NULL,
+                    image TEXT
+                )
+                """
+            )
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sales (
-            sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            price REAL NOT NULL,
-            source TEXT NOT NULL,
-            FOREIGN KEY (item_id) REFERENCES menu (id)
-        )
-    """)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orders (
+                    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_id INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'Pending',
+                    timestamp TEXT NOT NULL,
+                    transaction_id TEXT,
+                    FOREIGN KEY (item_id) REFERENCES menu (id)
+                )
+                """
+            )
 
-    # NEW TABLE for RFID users (Option #1)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS rfid_users (
-            rfid_tag_id TEXT PRIMARY KEY,
-            username TEXT,
-            balance REAL NOT NULL
-        )
-    """)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sales (
+                    sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER NOT NULL,
+                    item_id INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    FOREIGN KEY (item_id) REFERENCES menu (id),
+                    FOREIGN KEY (order_id) REFERENCES orders (order_id)
+                )
+                """
+            )
 
-    # Populate the menu table only if it's empty (avoid duplicates)
-    cursor.execute("SELECT COUNT(*) FROM menu")
-    count_menu = cursor.fetchone()[0]
-    if count_menu == 0:
-        cursor.executemany("""
-            INSERT INTO menu (name, category, price, availability, image)
-            VALUES (:name, :category, :price, :availability, :image)
-        """, DRINKS_MENU)
-        print(f"Populated 'menu' table with {len(DRINKS_MENU)} drinks.")
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inventory_list (
+                    inventory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    inventory_name TEXT NOT NULL,
+                    amount INTEGER NOT NULL
+                )
+                """
+            )
 
-    # Insert our test RFID user(s) if not already present
-    cursor.executemany("""
-        INSERT OR IGNORE INTO rfid_users (rfid_tag_id, username, balance)
-        VALUES (:rfid_tag_id, :username, :balance)
-    """, RFID_USERS)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS menu_inventory (
+                    id INTEGER,
+                    name TEXT,
+                    inventory_id INTEGER,
+                    inventory_name TEXT,
+                    FOREIGN KEY(id) REFERENCES menu(id),
+                    FOREIGN KEY(inventory_id) REFERENCES inventory_list(inventory_id)
+                )
+                """
+            )
 
-    conn.commit()
-    conn.close()
-    print("Database initialized successfully!")
+            # Insert test user if not already present
+            cursor.execute("SELECT id FROM users WHERE username = ?", ("test_user",))
+            if cursor.fetchone() is None:
+                hashed_password = bcrypt.hashpw("password123".encode("utf-8"), bcrypt.gensalt())
+                cursor.execute(
+                    """
+                    INSERT INTO users (username, password, credit)
+                    VALUES (?, ?, ?)
+                    """,
+                    ("test_user", hashed_password, 100.0),
+                )
+                logger.info("Inserted test_user into the database.")
+            else:
+                logger.info("test_user already exists. Skipping insertion.")
 
-# Run the script
+            # Optionally populate menu and inventory_list tables here.
+            # For example, to insert drinks into the menu table:
+            # for drink in DRINKS_MENU:
+            #     cursor.execute(
+            #         "INSERT OR IGNORE INTO menu (name, category, price, availability, image) VALUES (?, ?, ?, ?, ?)",
+            #         (drink["name"], drink["category"], drink["price"], drink["availability"], drink["image"]),
+            #     )
+            conn.commit()
+            logger.info("Database initialized and populated with data!")
+    except Exception as e:
+        logger.error("Error initializing database: %s", e)
+
 if __name__ == "__main__":
     initialize_database()

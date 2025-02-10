@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Vending Machine - Payment</title>
+</head>
+<body>
+  <h1>Select an Item and Checkout</h1>
+  <label for="item_select">Pick an item:</label>
+  <select id="item_select">
+    <option value="0">Classic Coffee ($2.50)</option>
+    <option value="1">Strawberry Latte ($3.00)</option>
+    <option value="2">Lychee Milk Tea ($3.50)</option>
+    <option value="3">Mocha Strawberry Twist ($4.00)</option>
+    <option value="4">Lime Infused Coffee ($2.75)</option>
+  </select>
+  <br><br>
+  <button id="checkout-button">Pay with Card</button>
+  <button id="rfid-button">Pay with RFID</button>
+  <button id="qr-button">Pay with QR</button>
+  <p id="message" style="font-weight: bold;"></p>
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    const checkoutButton = document.getElementById('checkout-button');
+    const rfidButton = document.getElementById('rfid-button');
+    const qrButton = document.getElementById('qr-button');
+    const itemSelect = document.getElementById('item_select');
+    const messageDisplay = document.getElementById('message');
+
+    checkoutButton.addEventListener('click', () => {
+      const selectedIndex = itemSelect.value;
+      fetch('/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if(data.url) {
+          window.location.href = data.url;
+        } else {
+          messageDisplay.textContent = "Error: " + data.error;
+        }
+      })
+      .catch(err => console.error('Error creating checkout session:', err));
+    });
+
+    rfidButton.addEventListener('click', () => {
+      const selectedIndex = itemSelect.value;
+      messageDisplay.textContent = "Processing RFID payment...";
+      fetch('/rfid-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.message) {
+          messageDisplay.textContent = `✅ ${data.message} New balance: $${data.new_balance}`;
+          messageDisplay.style.color = "green";
+        } else {
+          messageDisplay.textContent = `❌ ${data.error}`;
+          messageDisplay.style.color = "red";
+        }
+      })
+      .catch(err => {
+        messageDisplay.textContent = "❌ Error processing RFID payment.";
+        messageDisplay.style.color = "red";
+      });
+    });
+
+    qrButton.addEventListener('click', () => {
+      const selectedIndex = itemSelect.value;
+      messageDisplay.textContent = "Generating QR code for payment...";
+      fetch('/qr-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.message) {
+          messageDisplay.textContent = `✅ ${data.message}`;
+          messageDisplay.style.color = "green";
+        } else {
+          messageDisplay.textContent = `❌ ${data.error}`;
+          messageDisplay.style.color = "red";
+        }
+      })
+      .catch(err => {
+        messageDisplay.textContent = "❌ Error processing QR payment.";
+        messageDisplay.style.color = "red";
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,75 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Smart Vending Machine</title>
+  <meta charset="UTF-8">
+  <title>Login - Smart Vending Machine</title>
 </head>
 <body>
-  <h1>Select an Item and Checkout</h1>
-
-  <label for="item_select">Pick an item:</label>
-  <select id="item_select">
-    <option value="0">Classic Coffee ($2.50)</option>
-    <option value="1">Strawberry Latte ($3.00)</option>
-    <option value="2">Lychee Milk Tea ($3.50)</option>
-    <option value="3">Mocha Strawberry Twist ($4.00)</option>
-    <option value="4">Lime Infused Coffee ($2.75)</option>
-  </select>
-
-  <br><br>
-
-  <button id="checkout-button">Pay with Card</button>
-  <button id="rfid-button">Pay with RFID</button>
-
-  <p id="message" style="font-weight: bold;"></p>
-
-  <script src="https://js.stripe.com/v3/"></script>
-  
-  <script>
-    const checkoutButton = document.getElementById('checkout-button');
-    const rfidButton = document.getElementById('rfid-button');
-    const itemSelect = document.getElementById('item_select');
-    const messageDisplay = document.getElementById('message');
-
-    checkoutButton.addEventListener('click', () => {
-      const selectedIndex = itemSelect.value;
-
-      fetch('/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_index: selectedIndex })
-      })
-      .then(response => response.json())
-      .then(data => {
-        window.location.href = data.url;
-      })
-      .catch(err => console.error('Error creating checkout session:', err));
-    });
-
-    rfidButton.addEventListener('click', () => {
-      const selectedIndex = itemSelect.value;
-      messageDisplay.textContent = "Waiting for RFID tap...";
-
-      fetch('/rfid-pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_index: selectedIndex })
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.message) {
-          messageDisplay.textContent = `✅ Payment Successful! New balance: $${data.new_balance}`;
-          messageDisplay.style.color = "green";
-        } else {
-          messageDisplay.textContent = `❌ ${data.error}`;
-          messageDisplay.style.color = "red";
-        }
-      })
-      .catch(err => {
-        messageDisplay.textContent = "❌ Error processing RFID payment.";
-        messageDisplay.style.color = "red";
-      });
-    });
-  </script>
+  <h2>Login</h2>
+  <form action="/login" method="POST">
+    <div>
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+    </div>
+    <div>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+    </div>
+    <div>
+      <button type="submit">Login</button>
+    </div>
+  </form>
+  {% if error %}
+    <p style="color:red;">{{ error }}</p>
+  {% endif %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <p style="color:red;">{{ message }}</p>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
 </body>
 </html>
