@@ -1,10 +1,11 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta
 import random
 import pytz
 
 # Database file
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 # Define Singapore Time
 SGT = pytz.timezone('Asia/Singapore')
