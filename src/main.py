@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import datetime
 from threading import Thread
@@ -27,7 +28,7 @@ from hal import hal_accelerometer as accel
 shared_keypad_queue = queue.Queue()
 
 # Database file location
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 # Define Singapore Time Zone
 SGT = pytz.timezone('Asia/Singapore')
@@ -165,7 +166,7 @@ def fetch_next_order():
         cursor = conn.cursor()
 
         # Fetch remote orders
-        response = requests.get("http://localhost:5000/order")
+        response = requests.get("http://localhost:30001/order")
         if response.status_code == 200:
             remote_orders = response.json()
             for order in remote_orders:

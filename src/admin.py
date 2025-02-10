@@ -1,14 +1,15 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+import os
 import sqlite3
 import pytz
 from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Change this for security
 
 # Define database file
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 # Define Singapore Time
 SGT = pytz.timezone('Asia/Singapore')

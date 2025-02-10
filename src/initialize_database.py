@@ -1,7 +1,8 @@
+import os
 import sqlite3
 
 # Define database file
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 # Drinks menu data with images
 DRINKS_MENU = [

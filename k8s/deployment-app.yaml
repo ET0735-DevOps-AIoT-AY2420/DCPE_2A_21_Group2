@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vending-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vending-app
+  template:
+    metadata:
+      labels:
+        app: vending-app
+    spec:
+      containers:
+        - name: vending-app
+          image: kinda1vin/vending-app
+          ports:
+            - containerPort: 5000
+          env:
+            - name: DB_PATH
+              value: "/data/vending_machine.db"  # Shared DB Path
+          volumeMounts:
+            - mountPath: "/data"
+              name: vending-db-storage
+      volumes:
+        - name: vending-db-storage
+          persistentVolumeClaim:
+            claimName: vending-pvc
