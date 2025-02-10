@@ -19,6 +19,9 @@ from telegram import Bot
 import bcrypt
 import logging
 
+# Import the RFID transaction functions from your module.
+from update_rfid_transactions import record_rfid_transaction
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,8 +45,9 @@ TELEGRAM_BOT_TOKEN = os.environ.get(
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "871756841")
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# For RFID payments, consider storing the balance in the database.
-rfid_balance = 100.0
+# For RFID payments, a global variable may no longer be needed as the balance is maintained in the database.
+# (You can remove the global rfid_balance if all credit deductions are done in the DB.)
+rfid_balance = 100.0  # This may be used only for simulation if not stored in the database.
 
 # Sample drinks menu (should match your database/menu)
 DRINKS_MENU = [
@@ -171,43 +175,37 @@ def create_checkout_session():
         logger.error("Stripe session creation error: %s", e)
         return jsonify({"error": str(e)}), 400
 
+from rfid_payment import simulate_rfid_payment
+
 @app.route("/rfid-pay", methods=["POST"])
 def rfid_pay():
-    """Simulate RFID payment by deducting from a global balance."""
-    global rfid_balance
+    """
+    Process an RFID payment:
+    - Calls simulate_rfid_payment() to wait for a card and process the payment.
+    - Updates the user's credit and records the transaction.
+    """
     try:
         data = request.get_json()
         item_index = int(data["item_index"])
         selected_item = DRINKS_MENU[item_index]
         price = selected_item["price"]
-        if rfid_balance < price:
-            return jsonify({"error": "Insufficient RFID credit."}), 400
-        rfid_balance -= price
-        current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO orders (item_id, source, status, timestamp)
-                VALUES (?, ?, ?, ?)
-                """,
-                (item_index + 1, "RFID", "Completed", current_timestamp),
-            )
-            order_id = cursor.lastrowid
-            cursor.execute(
-                """
-                INSERT INTO sales (order_id, item_id, timestamp, price, source)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (order_id, item_index + 1, current_timestamp, price, "RFID"),
-            )
-            conn.commit()
-        return jsonify(
-            {"message": "RFID payment successful.", "new_balance": f"{rfid_balance:.2f}"}
-        ), 200
+
+        # Call the RFID payment simulation (this may block)
+        rfid_card_id, new_balance = simulate_rfid_payment(payment_amount=price)
+        if not rfid_card_id:
+            return jsonify({"error": "RFID payment failed or no card detected."}), 400
+
+        # Record the RFID transaction in the database.
+        record_rfid_transaction(user_id=session.get("user_id"),
+                                item_index=item_index,
+                                price=price,
+                                rfid_card_id=rfid_card_id)
+        
+        return jsonify({"message": "RFID payment successful.", "new_balance": f"{new_balance:.2f}"}), 200
     except Exception as e:
         logger.error("Error in RFID payment: %s", e)
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/qr-pay", methods=["POST"])
 def qr_pay():
@@ -260,9 +258,9 @@ def qr_pay():
             cursor.execute(
                 """
                 INSERT INTO orders (item_id, source, status, timestamp, transaction_id)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, 'QR', 'Pending', ?, ?)
                 """,
-                (item_index + 1, "QR", "Pending", current_timestamp, transaction_id),
+                (item_index + 1, current_timestamp, transaction_id),
             )
             conn.commit()
 
@@ -286,22 +284,21 @@ def success():
             cursor.execute(
                 """
                 INSERT INTO orders (item_id, source, status, timestamp)
-                VALUES (?, ?, ?, ?)
+                VALUES (?, 'Stripe', 'Completed', ?)
                 """,
-                (item_index + 1, "Stripe", "Completed", current_timestamp),
+                (item_index + 1, current_timestamp),
             )
             order_id = cursor.lastrowid
             cursor.execute(
                 """
                 INSERT INTO sales (order_id, item_id, timestamp, price, source)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 'Stripe')
                 """,
                 (
                     order_id,
                     item_index + 1,
                     current_timestamp,
                     DRINKS_MENU[item_index]["price"],
-                    "Stripe",
                 ),
             )
             conn.commit()
@@ -316,5 +313,3 @@ def cancel():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5003, debug=True)
-
-
