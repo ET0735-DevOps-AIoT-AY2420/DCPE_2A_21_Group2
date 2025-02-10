@@ -19,8 +19,8 @@ from telegram import Bot
 import bcrypt
 import logging
 
-# Import the RFID transaction functions from your module.
-from update_rfid_transactions import record_rfid_transaction
+# For RFID payment simulation
+from rfid_payment import simulate_rfid_payment
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # --- Configuration and Setup ---
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "b9faabf6d98e5b9bfc6ccf8f592406c7")
-DB_FILE = os.environ.get("DB_FILE", "vending_machine.db")
+DB_FILE = os.environ.get("DB_PATH", "vending_machine.db")
 
 # Stripe configuration (for card payments)
 stripe.api_key = os.environ.get(
@@ -156,16 +156,14 @@ def create_checkout_session():
         price_in_cents = int(selected_item["price"] * 100)
         session_stripe = stripe.checkout.Session.create(
             payment_method_types=["card"],
-            line_items=[
-                {
-                    "price_data": {
-                        "currency": "usd",
-                        "product_data": {"name": selected_item["name"]},
-                        "unit_amount": price_in_cents,
-                    },
-                    "quantity": 1,
-                }
-            ],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": selected_item["name"]},
+                    "unit_amount": price_in_cents,
+                },
+                "quantity": 1,
+            }],
             mode="payment",
             success_url=url_for("success", item_index=item_index, _external=True),
             cancel_url=url_for("cancel", _external=True),
@@ -175,7 +173,56 @@ def create_checkout_session():
         logger.error("Stripe session creation error: %s", e)
         return jsonify({"error": str(e)}), 400
 
-from rfid_payment import simulate_rfid_payment
+# --- RFID Transaction Functionality ---
+def record_rfid_transaction(user_id, item_index, price, rfid_card_id):
+    """
+    Records an RFID transaction:
+      - Deducts the payment amount from the user's credit.
+      - Inserts an order record with source 'RFID' and the rfid_card_id.
+      - Inserts a corresponding sales record.
+    All changes are committed atomically.
+    
+    Parameters:
+      user_id (int): The user's ID.
+      item_index (int): Index of the purchased item (0-based).
+      price (float): The price of the item.
+      rfid_card_id (str): The RFID card identifier.
+    """
+    current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Deduct the price from the user's credit.
+        cursor.execute("UPDATE users SET credit = credit - ? WHERE user_id = ?", (price, user_id))
+        
+        # Generate a transaction_id using the current timestamp.
+        transaction_id = str(datetime.datetime.now().timestamp())
+        
+        # Insert the RFID transaction into the orders table.
+        cursor.execute(
+            """
+            INSERT INTO orders (item_id, source, status, timestamp, transaction_id, rfid_card_id)
+            VALUES (?, 'RFID', 'Completed', ?, ?, ?)
+            """,
+            (item_index + 1, current_timestamp, transaction_id, rfid_card_id)
+        )
+        order_id = cursor.lastrowid
+        
+        # Insert a corresponding record in the sales table.
+        cursor.execute(
+            """
+            INSERT INTO sales (order_id, item_id, timestamp, price, source)
+            VALUES (?, ?, ?, ?, 'RFID')
+            """,
+            (order_id, item_index + 1, current_timestamp, price)
+        )
+        conn.commit()
+        logger.info("RFID transaction recorded: Order ID %s for RFID card %s.", order_id, rfid_card_id)
+    except Exception as e:
+        conn.rollback()
+        logger.error("Error recording RFID transaction: %s", e)
+    finally:
+        conn.close()
 
 @app.route("/rfid-pay", methods=["POST"])
 def rfid_pay():
@@ -206,7 +253,6 @@ def rfid_pay():
         logger.error("Error in RFID payment: %s", e)
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/qr-pay", methods=["POST"])
 def qr_pay():
     """
@@ -225,8 +271,8 @@ def qr_pay():
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # Only check for sufficient credit.
-            cursor.execute("SELECT credit FROM users WHERE id = ?", (user_id,))
+            # Check for sufficient credit.
+            cursor.execute("SELECT credit FROM users WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
             if not row:
                 return jsonify({"error": "User not found in database."}), 404
@@ -237,7 +283,7 @@ def qr_pay():
             # Generate a unique transaction ID and update user credit.
             transaction_id = uuid.uuid4().hex
             new_credit = current_credit - amount
-            cursor.execute("UPDATE users SET credit = ? WHERE id = ?", (new_credit, user_id))
+            cursor.execute("UPDATE users SET credit = ? WHERE user_id = ?", (new_credit, user_id))
             conn.commit()
 
         # Create the QR code payload.
@@ -245,7 +291,6 @@ def qr_pay():
         qr_img = qrcode.make(qr_payload)
 
         # Construct a filename that includes the target Telegram chat ID and transaction ID.
-        # Example filename: "qr_871756841_<transaction_id>.png"
         filename = f"qr_{TELEGRAM_CHAT_ID}_{transaction_id}.png"
         file_path = os.path.join(QR_FOLDER, filename)
         qr_img.save(file_path)
@@ -260,7 +305,7 @@ def qr_pay():
                 INSERT INTO orders (item_id, source, status, timestamp, transaction_id)
                 VALUES (?, 'QR', 'Pending', ?, ?)
                 """,
-                (item_index + 1, current_timestamp, transaction_id),
+                (item_index + 1, current_timestamp, transaction_id)
             )
             conn.commit()
 
@@ -286,7 +331,7 @@ def success():
                 INSERT INTO orders (item_id, source, status, timestamp)
                 VALUES (?, 'Stripe', 'Completed', ?)
                 """,
-                (item_index + 1, current_timestamp),
+                (item_index + 1, current_timestamp)
             )
             order_id = cursor.lastrowid
             cursor.execute(
@@ -299,7 +344,7 @@ def success():
                     item_index + 1,
                     current_timestamp,
                     DRINKS_MENU[item_index]["price"],
-                ),
+                )
             )
             conn.commit()
         return render_template("success.html", item=selected_item)
