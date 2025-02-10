@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment directories
+venv/
+env/
+
+# Editor/IDE settings
+.vscode/
+
+# Log and temporary files
+*.log
+*.tmp
+
+# Ignore generated QR codes
+qrcodes/
+
+# Optionally ignore your local database file
+vending_machine.db
+
+# Ignore build / distribution folders
+build/
+dist/
+*.egg-info/
+
+# Re-include source files (unignore .py files, HTML templates, JavaScript, and the .gitignore itself)
+!.gitignore
+!*.py
+!*.js
+!*.html
+!templates/
+!static/
