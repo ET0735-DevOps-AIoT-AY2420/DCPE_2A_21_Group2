@@ -3,7 +3,7 @@ import os
 import sqlite3
 import logging
 import datetime
-import bcrypt
+import uuid
 
 # Configure logging to include timestamp, level, and message
 logging.basicConfig(level=logging.INFO,
@@ -23,21 +23,18 @@ DRINKS_MENU = [
     {"name": "Lychee Milk Tea", "category": "Hot Beverage", "price": 3.50, "availability": True, "image": "lychee_milk_tea.jpg"},
     {"name": "Mocha Strawberry Twist", "category": "Hot Beverage", "price": 4.00, "availability": True, "image": "mocha_strawberry_twist.jpg"},
     {"name": "Lime Infused Coffee", "category": "Hot Beverage", "price": 2.75, "availability": True, "image": "lime_infused_coffee.jpg"},
-
     # Cold Beverages
     {"name": "Iced Coffee", "category": "Cold Beverage", "price": 3.00, "availability": True, "image": "iced_coffee.jpg"},
     {"name": "Strawberry Iced Latte", "category": "Cold Beverage", "price": 3.50, "availability": True, "image": "strawberry_iced_latte.jpg"},
     {"name": "Lychee Cooler", "category": "Cold Beverage", "price": 3.75, "availability": True, "image": "lychee_cooler.jpg"},
     {"name": "Lime Lychee Refresher", "category": "Cold Beverage", "price": 3.25, "availability": True, "image": "lime_lychee_refresher.jpg"},
     {"name": "Coffee Berry Chill", "category": "Cold Beverage", "price": 4.50, "availability": True, "image": "coffee_berry_chill.jpg"},
-
     # Soda Mixes
     {"name": "Strawberry Soda Fizz", "category": "Soda Mix", "price": 3.00, "availability": True, "image": "strawberry_soda_fizz.jpg"},
     {"name": "Lime Sparkle", "category": "Soda Mix", "price": 3.00, "availability": True, "image": "lime_sparkle.jpg"},
     {"name": "Lychee Lime Spritz", "category": "Soda Mix", "price": 3.50, "availability": True, "image": "lychee_lime_spritz.jpg"},
     {"name": "Coffee Soda Kick", "category": "Soda Mix", "price": 4.00, "availability": True, "image": "coffee_soda_kick.jpg"},
     {"name": "Strawberry Lychee Sparkler", "category": "Soda Mix", "price": 4.25, "availability": True, "image": "strawberry_lychee_sparkler.jpg"},
-
     # Smoothies
     {"name": "Strawberry Milk Smoothie", "category": "Smoothie", "price": 3.50, "availability": True, "image": "strawberry_milk_smoothie.jpg"},
     {"name": "Lychee Delight Smoothie", "category": "Smoothie", "price": 3.75, "availability": True, "image": "lychee_delight_smoothie.jpg"},
@@ -137,9 +134,9 @@ def initialize_database():
     # Inventory list table: stores available inventory items.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS inventory_list (
-            inventory_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            inventory_id INTEGER PRIMARY KEY AUTOINCREMENT,
             inventory_name TEXT NOT NULL,
-            amount         INTEGER NOT NULL
+            amount       INTEGER NOT NULL
         );
     """)
     
@@ -156,10 +153,7 @@ def initialize_database():
     """)
     
     # Orders table: records each transaction.
-    # Note: The orders table now includes additional columns for RFID payments:
-    #       - transaction_id: a unique identifier for the transaction.
-    #       - rfid_card_id: the RFID card used to make the payment.
-    #       - source: indicates the payment method (e.g., 'RFID', 'Stripe', 'QR', etc.)
+    # Additional columns have been added for RFID payments.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,7 +189,7 @@ def initialize_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Populate admin_users
+    # Populate admin_users table
     admin_users = [
         ('admin1', '123456'),
         ('admin2', '123456'),
@@ -261,8 +255,6 @@ def initialize_database():
     logger.info("Initial data populated.")
     
     # --- Simulated RFID Transaction ---
-    # For testing purposes, simulate an RFID transaction:
-    # Assume: User with user_id 1 (John Doe) purchases the first menu item.
     simulate_rfid_transaction()
 
 def record_rfid_transaction(user_id, item_index, price, rfid_card_id):
