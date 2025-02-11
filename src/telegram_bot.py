@@ -8,7 +8,7 @@ from telegram import Bot
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
-# Configure logging
+# Configure logging to include timestamp, level, and message
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -22,6 +22,7 @@ bot = Bot(token=TELEGRAM_BOT_TOKEN)
 QR_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodes")
 if not os.path.exists(QR_FOLDER):
     os.makedirs(QR_FOLDER)
+logger.info("QR folder: %s", QR_FOLDER)
 
 def parse_chat_id_from_filename(filename):
     """
@@ -61,6 +62,7 @@ class QRFileHandler(PatternMatchingEventHandler):
         file_path = event.src_path
         filename = os.path.basename(file_path)
         logger.info("New QR file detected: %s", filename)
+        
         chat_id = parse_chat_id_from_filename(filename)
         if chat_id is None:
             logger.error("Could not parse chat id from filename: %s", filename)
@@ -68,6 +70,18 @@ class QRFileHandler(PatternMatchingEventHandler):
 
         async def send_photo_async():
             try:
+                # Wait until the file is non-empty (max 5 seconds)
+                max_wait = 5
+                waited = 0
+                while os.path.getsize(file_path) == 0 and waited < max_wait:
+                    logger.info("Waiting for file %s to be non-empty...", filename)
+                    await asyncio.sleep(0.5)
+                    waited += 0.5
+
+                if os.path.getsize(file_path) == 0:
+                    logger.error("File %s is still empty after waiting.", filename)
+                    return
+
                 # Open the file and send the photo using the bot.
                 with open(file_path, 'rb') as photo:
                     await bot.send_photo(
@@ -82,10 +96,9 @@ class QRFileHandler(PatternMatchingEventHandler):
             except Exception as e:
                 logger.error("Error sending QR code %s: %s", filename, e)
 
-        # Schedule the async task on the dedicated event loop.
+        logger.info("Scheduling send_photo_async for file: %s", filename)
         future = asyncio.run_coroutine_threadsafe(send_photo_async(), event_loop)
         try:
-            # Optionally wait for a short timeout to catch errors.
             future.result(timeout=30)
         except Exception as e:
             logger.error("Error running send_photo_async for %s: %s", filename, e)
