@@ -109,11 +109,11 @@ def require_login():
 def home():
     return render_template("index.html")
 
-# --- User Login Routes ---
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """
-    Handles user login.
+    Handles user and admin login.
+    Checks both the 'users' and 'admin_users' tables.
     """
     if request.method == "POST":
         username = request.form["username"]
@@ -121,20 +121,38 @@ def login():
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+
+                # Check in 'users' table first
+                cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
                 user = cursor.fetchone()
-            if user and bcrypt.checkpw(password.encode("utf-8"), user["password"]):
-                session["user_id"] = user["id"]
-                session["username"] = user["username"]
-                return redirect(url_for("payment"))
-            else:
+
+                if user:
+                    session["user_id"] = user["id"]
+                    session["username"] = user["username"]
+                    flash("Login successful!", "success")
+                    return redirect(url_for("payment"))
+
+                # If not found, check in 'admin_users' table
+                cursor.execute("SELECT * FROM admin_users WHERE username = ? AND password = ?", (username, password))
+                admin_user = cursor.fetchone()
+
+                if admin_user:
+                    session["user_id"] = admin_user["id"]
+                    session["username"] = admin_user["username"]
+                    flash("Admin login successful!", "success")
+                    return redirect(url_for("payment"))
+
+                # If neither are found, return error
                 flash("Invalid username or password", "danger")
                 return render_template("index.html")
+
         except Exception as e:
             logger.error("Error during login: %s", e)
             flash("An error occurred. Please try again.", "danger")
             return render_template("index.html")
+
     return render_template("index.html")
+
 
 @app.route("/logout")
 def logout():
