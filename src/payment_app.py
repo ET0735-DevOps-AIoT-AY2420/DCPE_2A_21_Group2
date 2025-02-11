@@ -116,8 +116,11 @@ def login():
     Checks both the 'users' and 'admin_users' tables.
     """
     if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
+        username = request.form.get("username")
+        password = request.form.get("password")
+
+        logger.info(f"Login attempt - Username: {username}, Password: {password}")
+
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -130,6 +133,7 @@ def login():
                     session["user_id"] = user["id"]
                     session["username"] = user["username"]
                     flash("Login successful!", "success")
+                    logger.info(f"User login successful: {username}")
                     return redirect(url_for("payment"))
 
                 # If not found, check in 'admin_users' table
@@ -140,18 +144,21 @@ def login():
                     session["user_id"] = admin_user["id"]
                     session["username"] = admin_user["username"]
                     flash("Admin login successful!", "success")
+                    logger.info(f"Admin login successful: {username}")
                     return redirect(url_for("payment"))
 
                 # If neither are found, return error
                 flash("Invalid username or password", "danger")
+                logger.warning(f"Login failed for username: {username}")
                 return render_template("index.html")
 
         except Exception as e:
-            logger.error("Error during login: %s", e)
+            logger.error(f"Error during login: {e}")
             flash("An error occurred. Please try again.", "danger")
             return render_template("index.html")
 
     return render_template("index.html")
+
 
 
 @app.route("/logout")
