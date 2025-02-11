@@ -161,6 +161,7 @@ def login():
 
 
 
+
 @app.route("/logout")
 def logout():
     session.clear()
