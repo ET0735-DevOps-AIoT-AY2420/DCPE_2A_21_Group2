@@ -47,7 +47,7 @@
 <body>
     <div class="login-container">
         <h2>Login</h2>
-        <form action="{{ url_for('login') }}" method="POST">
+        <form action="{{ url_for('login') }}" method="POST" onsubmit="console.log('Form submitted!')">
             <div>
                 <label for="username">Username:</label>
                 <input type="text" id="username" name="username" required autofocus placeholder="Enter username">
@@ -59,7 +59,7 @@
             <div>
                 <button type="submit">Login</button>
             </div>
-        </form>
+        </form>        
 
         <!-- Display flash messages for errors or success -->
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -70,5 +70,13 @@
             {% endif %}
         {% endwith %}
     </div>
+
+    <script>
+        // Debugging script to check form submission
+        document.querySelector("form").addEventListener("submit", function() {
+            console.log("Login form submitted");
+        });
+    </script>
+
 </body>
 </html>
