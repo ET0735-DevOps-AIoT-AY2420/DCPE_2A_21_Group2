@@ -66,6 +66,18 @@ def record_rfid_transaction(user_id, price, rfid_card_id, item_id=1):
     finally:
         conn.close()
 
+def simulate_rfid_payment(payment_amount):
+    """
+    Simulate an RFID payment transaction.
+    For demonstration purposes, this function simulates a transaction:
+      - It returns a test RFID card ID and calculates a new balance.
+    """
+    # Example simulation logic:
+    new_balance = 100.0 - payment_amount  # Simulate deduction from an initial balance
+    test_rfid_card_id = "ABC123DEF456"      # Example RFID card ID
+    return test_rfid_card_id, new_balance
+
+
 def main():
     # Initialize LCD and LED
     lcd = LCD.lcd()
