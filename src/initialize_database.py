@@ -189,7 +189,7 @@ def initialize_database():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Populate admin_users table
+    # Populate admin_users table using INSERT OR IGNORE to avoid duplicate errors
     admin_users = [
         ('admin1', '123456'),
         ('admin2', '123456'),
@@ -197,41 +197,41 @@ def initialize_database():
         ('admin4', '123456')
     ]
     cursor.executemany("""
-        INSERT INTO admin_users (username, password)
+        INSERT OR IGNORE INTO admin_users (username, password)
         VALUES (?, ?)
     """, admin_users)
-    logger.info("Inserted %d admin user(s).", len(admin_users))
+    logger.info("Inserted (or ignored duplicates for) %d admin user(s).", len(admin_users))
     
     # Populate admin_logs with an example log
     cursor.execute("""
-        INSERT INTO admin_logs (admin_id, ip_address)
+        INSERT OR IGNORE INTO admin_logs (admin_id, ip_address)
         VALUES (1, '127.0.0.1')
     """)
     
-    # Populate users table
+    # Populate users table using INSERT OR IGNORE
     users = [
         ("John Doe", "RFID123456", 100.0),
         ("Jane Smith", "RFID654321", 100.0)
     ]
     cursor.executemany("""
-        INSERT INTO users (name, rfid_card_id, credit)
+        INSERT OR IGNORE INTO users (name, rfid_card_id, credit)
         VALUES (?, ?, ?)
     """, users)
-    logger.info("Inserted %d user(s).", len(users))
+    logger.info("Inserted (or ignored duplicates for) %d user(s).", len(users))
     
-    # Populate menu table
+    # Populate menu table using INSERT OR IGNORE
     cursor.executemany("""
-        INSERT INTO menu (name, category, price, availability, image)
+        INSERT OR IGNORE INTO menu (name, category, price, availability, image)
         VALUES (:name, :category, :price, :availability, :image)
     """, DRINKS_MENU)
-    logger.info("Inserted %d menu item(s).", len(DRINKS_MENU))
+    logger.info("Inserted (or ignored duplicates for) %d menu item(s).", len(DRINKS_MENU))
     
-    # Populate inventory_list table
+    # Populate inventory_list table using INSERT OR IGNORE
     cursor.executemany("""
-        INSERT INTO inventory_list (inventory_name, amount)
+        INSERT OR IGNORE INTO inventory_list (inventory_name, amount)
         VALUES (:inventory_name, :amount)
     """, INVENTORY_LIST)
-    logger.info("Inserted %d inventory item(s).", len(INVENTORY_LIST))
+    logger.info("Inserted (or ignored duplicates for) %d inventory item(s).", len(INVENTORY_LIST))
     
     # Populate menu_inventory table
     for drink_name, ingredients in MENU_INVENTORY_MAPPING.items():
@@ -245,7 +245,7 @@ def initialize_database():
                 if inv_row:
                     inventory_id = inv_row[0]
                     cursor.execute("""
-                        INSERT INTO menu_inventory (id, name, inventory_id, inventory_name)
+                        INSERT OR IGNORE INTO menu_inventory (id, name, inventory_id, inventory_name)
                         VALUES (?, ?, ?, ?)
                     """, (menu_id, drink_name, inventory_id, ingredient))
     logger.info("Populated menu_inventory table.")
