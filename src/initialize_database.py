@@ -10,8 +10,8 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Determine the database file path from environment or use default path
-DB_FILE = os.getenv("DB_PATH", "vending_machine.db")
+# Set the database file path explicitly to avoid using an environment variable
+DB_FILE = "/home/pi/Jaeson/vending_machine.db"
 logger.info(f"Database file path: {DB_FILE}")
 
 # Sample Data
