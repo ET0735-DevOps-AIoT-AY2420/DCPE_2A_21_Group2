@@ -68,13 +68,100 @@ os.makedirs(QR_FOLDER, exist_ok=True)
 # --- Before Request: Require Login for Protected Endpoints ---
 @app.before_request
 def require_login():
-    if request.endpoint not in ["login", "home", "static"] and "user_id" not in session:
-        return redirect(url_for("login"))
+    # Allow access to the login and static endpoints without login.
+    if request.endpoint in ["login", "static"]:
+        return
+    # If no session exists, redirect to /login
+    if "user_id" not in session:
+        return redirect("/login")
 
-# --- Payment (Ordering) Route ---
+# --- Root Route ---
+@app.route("/")
+def home():
+    # You may choose to show a home page here; for now we simply redirect to the login page.
+    return redirect("/login")
+
+# --- Login Route ---
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        logger.info(f"Login attempt - Username: '{username}', Password: '{password}'")
+        if not username or not password:
+            flash("Please enter both username and password", "danger")
+            return render_template("index.html")
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                # Check admin_users table first
+                logger.info(f"Checking admin_users table for: Username='{username}', Password='{password}'")
+                cursor.execute("SELECT * FROM admin_users WHERE username = ? AND password = ?", (username, password))
+                admin_user = cursor.fetchone()
+                if admin_user is not None:
+                    admin_user = dict(admin_user)
+                    session["user_id"] = admin_user["admin_id"]
+                    session["username"] = admin_user["username"]
+                    flash("Admin login successful!", "success")
+                    logger.info(f"Admin login successful: {username}")
+                    return redirect(url_for("payment"))
+                # Then check users table
+                logger.info(f"Checking users table for: Username='{username}', Password='{password}'")
+                cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+                user = cursor.fetchone()
+                if user is not None:
+                    user = dict(user)
+                    session["user_id"] = user["user_id"]
+                    session["username"] = user["username"]
+                    flash("User login successful!", "success")
+                    logger.info(f"User login successful: {username}")
+                    return redirect(url_for("payment"))
+                flash("Invalid username or password", "danger")
+                logger.warning(f"Login failed: Invalid credentials for username '{username}'")
+                return render_template("index.html")
+        except Exception as e:
+            logger.error(f"Error during login: {e}")
+            flash("An error occurred. Please try again.", "danger")
+            return render_template("index.html")
+    return render_template("index.html")
+
+# --- Logout Route ---
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+# --- Payment Route ---
 @app.route("/payment")
 def payment():
     return render_template("payment.html", drinks=DRINKS_MENU)
+
+# --- Stripe Payment Route ---
+@app.route("/create-checkout-session", methods=["POST"])
+def create_checkout_session():
+    try:
+        data = request.get_json()
+        item_index = int(data["item_index"])
+        selected_item = DRINKS_MENU[item_index]
+        price_in_cents = int(selected_item["price"] * 100)
+        session_stripe = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": selected_item["name"]},
+                    "unit_amount": price_in_cents,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=url_for("success", item_index=item_index, _external=True),
+            cancel_url=url_for("cancel", _external=True),
+        )
+        return jsonify({"url": session_stripe.url})
+    except Exception as e:
+        logger.error("Stripe session creation error: %s", e)
+        return jsonify({"error": str(e)}), 400
 
 # --- RFID Payment Route with LCD and LED Feedback ---
 @app.route("/rfid-pay", methods=["POST"])
@@ -104,9 +191,8 @@ def rfid_pay():
             flash("RFID payment timed out.", "danger")
             return render_template("payment.html", drinks=DRINKS_MENU)
 
-        # Log RFID transaction attempt
         logger.info(f"Recording RFID transaction: user_id={session.get('user_id')}, price={price}, rfid_card_id={rfid_card_id}, item_id={item_index + 1}")
-
+        
         # Record the RFID transaction in the database.
         record_rfid_transaction(
             user_id=session.get("user_id"),
@@ -119,14 +205,60 @@ def rfid_pay():
         lcd.lcd_clear()
         lcd.lcd_display_string("Payment Successful", 1)
         time.sleep(2)
-
-        # Redirect to success page
+        
+        # Return a JSON response with a redirect URL so that client-side JS can redirect
         return jsonify({"redirect": url_for("success", item_index=item_index)})
-
+        
     except Exception as e:
         logger.error("Error in RFID payment: %s", e)
         flash("Error processing RFID payment.", "danger")
         return jsonify({"error": "Error processing RFID payment."})
+
+# --- QR Payment Route ---
+@app.route("/qr-pay", methods=["POST"])
+def qr_pay():
+    try:
+        data = request.get_json()
+        item_index = int(data["item_index"])
+        selected_item = DRINKS_MENU[item_index]
+        amount = selected_item["price"]
+        user_id = session.get("user_id")
+        if user_id is None:
+            return jsonify({"error": "User not logged in."}), 401
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT credit FROM users WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            if not row:
+                return jsonify({"error": "User not found in database."}), 404
+            current_credit = row["credit"]
+            if current_credit < amount:
+                return jsonify({"error": "Insufficient credits for QR payment."}), 400
+            transaction_id = uuid.uuid4().hex
+            new_credit = current_credit - amount
+            cursor.execute("UPDATE users SET credit = ? WHERE user_id = ?", (new_credit, user_id))
+            conn.commit()
+        qr_payload = f"{user_id}:{amount}:{transaction_id}"
+        qr_img = qrcode.make(qr_payload)
+        filename = f"qr_{TELEGRAM_CHAT_ID}_{transaction_id}.png"
+        file_path = os.path.join(QR_FOLDER, filename)
+        qr_img.save(file_path)
+        logger.info("QR code saved to %s", file_path)
+        current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO orders (item_id, source, status, timestamp, transaction_id)
+                VALUES (?, 'QR', 'Pending', ?, ?)
+                """,
+                (item_index + 1, current_timestamp, transaction_id)
+            )
+            conn.commit()
+        return jsonify({"message": "QR code generated and queued for sending via Telegram."})
+    except Exception as e:
+        logger.error("Error in QR payment: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 # --- Success Route ---
 @app.route("/success")
@@ -138,6 +270,11 @@ def success():
     except Exception as e:
         logger.error("Error in success route: %s", e)
         return f"Error processing payment: {e}", 500
+
+# --- Cancel Route ---
+@app.route("/cancel")
+def cancel():
+    return "Payment canceled"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5003, debug=True)
