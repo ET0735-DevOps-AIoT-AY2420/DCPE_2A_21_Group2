@@ -26,7 +26,7 @@ class DHT11Result:
     def is_Valid(self):
         return self.error_code == DHT11Result.ERR_NO_ERROR
 
-# Initialize Hardware
+# Initialize moisture sensor and LED
 moisture.init()
 LED.init()
 
@@ -41,7 +41,7 @@ bot = Bot(token=BOT_TOKEN)
 def send_telegram_message(message):
     try:
         bot.send_message(chat_id=CHAT_ID, text=message)
-        print(f"Telegram message sent: {message}")  # Ensuring there is an indented block inside the function
+        #print(f"Telegram message sent: {message}")  # Ensuring there is an indented block inside the function
     except Exception as e:
         print(f"Error sending Telegram message: {e}")  # Fixed missing print statement
 
@@ -58,6 +58,9 @@ def moisture_status():
 # Detect temperature and humidity
 def temp_and_humidity():
     result = dht11_sensor.read()
+
+    temperature = None
+    humidity =None
 
     if result.is_valid():
         temperature = result.temperature
