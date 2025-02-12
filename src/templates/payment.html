@@ -100,32 +100,32 @@
 
     // Handle RFID payment
     rfidButton.addEventListener('click', () => {
-      const selectedIndex = itemSelect.value;
-      messageDisplay.textContent = "Processing RFID payment...";
-      fetch('/rfid-pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_index: selectedIndex })
-      })
-      .then(response => response.json())
-      .then(data => {
-        // If a redirect URL is provided, redirect the client
-        if (data.redirect) {
-          window.location.href = data.redirect;
-        } else if (data.error) {
-          messageDisplay.textContent = "Error: " + data.error;
-          messageDisplay.style.color = "red";
-        } else if (data.message) {
-          messageDisplay.textContent = "Success: " + data.message + " New balance: $" + data.new_balance;
-          messageDisplay.style.color = "green";
-        }
-      })
-      .catch(err => {
-        messageDisplay.textContent = "Error processing RFID payment.";
-        messageDisplay.style.color = "red";
-        console.error('Error processing RFID payment:', err);
-      });
-    });
+  const selectedIndex = itemSelect.value;
+  messageDisplay.textContent = "Processing RFID payment...";
+  fetch('/rfid-pay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_index: selectedIndex })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.redirect) {
+      window.location.href = data.redirect;
+    } else if (data.error) {
+      messageDisplay.textContent = `❌ ${data.error}`;
+      messageDisplay.style.color = "red";
+    } else if (data.message) {
+      messageDisplay.textContent = `✅ ${data.message} New balance: $${data.new_balance}`;
+      messageDisplay.style.color = "green";
+    }
+  })
+  .catch(err => {
+    messageDisplay.textContent = "❌ Error processing RFID payment.";
+    messageDisplay.style.color = "red";
+    console.error('Error processing RFID payment:', err);
+  });
+});
+
 
     // Handle QR payment
     qrButton.addEventListener('click', () => {
