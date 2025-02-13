@@ -4,6 +4,6 @@ metadata:
   name: vending-config
   namespace: default
 data:
-  DB_PATH: "/data/vending_machine.db"
+  DB_PATH: "/app/vending_machine.db"
   SECRET_KEY: "your_secret_key"
   FLASK_ENV: "production"
