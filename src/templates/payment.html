@@ -66,13 +66,6 @@
     const itemSelect = document.getElementById('item_select');
     const messageDisplay = document.getElementById('message');
 
-    // Function to handle redirection if provided in JSON response
-    function handleRedirect(responseJson) {
-      if (responseJson.redirect) {
-        window.location.href = responseJson.redirect;
-      }
-    }
-
     // Handle card payment
     checkoutButton.addEventListener('click', () => {
       const selectedIndex = itemSelect.value;
@@ -85,6 +78,7 @@
       .then(response => response.json())
       .then(data => {
         if (data.url) {
+          // Redirect to Stripe checkout
           window.location.href = data.url;
         } else {
           messageDisplay.textContent = "Error: " + data.error;
@@ -100,32 +94,32 @@
 
     // Handle RFID payment
     rfidButton.addEventListener('click', () => {
-  const selectedIndex = itemSelect.value;
-  messageDisplay.textContent = "Processing RFID payment...";
-  fetch('/rfid-pay', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ item_index: selectedIndex })
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.redirect) {
-      window.location.href = data.redirect;
-    } else if (data.error) {
-      messageDisplay.textContent = `❌ ${data.error}`;
-      messageDisplay.style.color = "red";
-    } else if (data.message) {
-      messageDisplay.textContent = `✅ ${data.message} New balance: $${data.new_balance}`;
-      messageDisplay.style.color = "green";
-    }
-  })
-  .catch(err => {
-    messageDisplay.textContent = "❌ Error processing RFID payment.";
-    messageDisplay.style.color = "red";
-    console.error('Error processing RFID payment:', err);
-  });
-});
-
+      const selectedIndex = itemSelect.value;
+      messageDisplay.textContent = "Processing RFID payment...";
+      fetch('/rfid-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.redirect) {
+          // Redirect if the server sends a redirect URL
+          window.location.href = data.redirect;
+        } else if (data.error) {
+          messageDisplay.textContent = `❌ ${data.error}`;
+          messageDisplay.style.color = "red";
+        } else if (data.message) {
+          messageDisplay.textContent = `✅ ${data.message} New balance: $${data.new_balance}`;
+          messageDisplay.style.color = "green";
+        }
+      })
+      .catch(err => {
+        messageDisplay.textContent = "❌ Error processing RFID payment.";
+        messageDisplay.style.color = "red";
+        console.error('Error processing RFID payment:', err);
+      });
+    });
 
     // Handle QR payment
     qrButton.addEventListener('click', () => {
@@ -138,9 +132,11 @@
       })
       .then(response => response.json())
       .then(data => {
-        if (data.message) {
-          messageDisplay.textContent = "Success: " + data.message;
-          messageDisplay.style.color = "green";
+        // Expecting the server to return a transaction_id for polling
+        if (data.transaction_id) {
+          messageDisplay.textContent = "QR code generated. Waiting for payment confirmation...";
+          // Start polling for the payment status using the transaction_id
+          pollForPayment(data.transaction_id);
         } else if (data.error) {
           messageDisplay.textContent = "Error: " + data.error;
           messageDisplay.style.color = "red";
@@ -152,6 +148,24 @@
         console.error('Error processing QR payment:', err);
       });
     });
+
+    // Polling function for QR payment status
+    function pollForPayment(transactionId) {
+      fetch(`/payment-status?transaction_id=${transactionId}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'Paid') {
+            // When payment is confirmed, redirect to the provided URL (for example, success.html)
+            window.location.href = data.redirect;
+          } else {
+            // Continue polling every 5 seconds
+            setTimeout(() => pollForPayment(transactionId), 5000);
+          }
+        })
+        .catch(err => {
+          console.error("Error checking payment status:", err);
+        });
+    }
   </script>
 </body>
 </html>

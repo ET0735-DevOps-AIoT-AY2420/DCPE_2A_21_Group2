@@ -8,17 +8,12 @@ from telegram import Bot
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
-# Configure logging to include timestamp, level, and message
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Use your provided Telegram bot token.
 TELEGRAM_BOT_TOKEN = "7854261569:AAHLf1DASQHn1MBiryaxGuEcaJtephX8d7M"
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# Define the QR codes folder (must match the one used in payment_app.py)
 QR_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodes")
 if not os.path.exists(QR_FOLDER):
     os.makedirs(QR_FOLDER)
@@ -42,19 +37,17 @@ def parse_chat_id_from_filename(filename):
         logger.error("Error parsing chat id from filename %s: %s", filename, e)
         return None
 
-# --- Set up a dedicated event loop in a background thread ---
 def start_event_loop(loop):
     asyncio.set_event_loop(loop)
     loop.run_forever()
 
-# Create a new event loop and start it in a daemon thread.
 event_loop = asyncio.new_event_loop()
 loop_thread = threading.Thread(target=start_event_loop, args=(event_loop,), daemon=True)
 loop_thread.start()
 logger.info("Started dedicated asyncio event loop in background thread.")
 
 class QRFileHandler(PatternMatchingEventHandler):
-    patterns = ["*.png"]  # Watch for PNG files
+    patterns = ["*.png"]
 
     def on_created(self, event):
         if event.is_directory:
@@ -82,15 +75,13 @@ class QRFileHandler(PatternMatchingEventHandler):
                     logger.error("File %s is still empty after waiting.", filename)
                     return
 
-                # Open the file and send the photo using the bot.
-                with open(file_path, 'rb') as photo:
+                with open(file_path, "rb") as photo:
                     await bot.send_photo(
                         chat_id=chat_id,
                         photo=photo,
                         caption="Here is your QR code for payment."
                     )
                 logger.info("Sent QR code %s to chat %s", filename, chat_id)
-                # Delete the file after successful sending.
                 os.remove(file_path)
                 logger.info("Deleted QR file %s after sending", filename)
             except Exception as e:
@@ -104,9 +95,6 @@ class QRFileHandler(PatternMatchingEventHandler):
             logger.error("Error running send_photo_async for %s: %s", filename, e)
 
 def start_watcher():
-    """
-    Start the watchdog observer to monitor the QR folder.
-    """
     event_handler = QRFileHandler()
     observer = Observer()
     observer.schedule(event_handler, path=QR_FOLDER, recursive=False)
