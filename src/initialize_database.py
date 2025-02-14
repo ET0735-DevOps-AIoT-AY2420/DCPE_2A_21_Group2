@@ -1,8 +1,18 @@
 import os
 import sqlite3
+import logging
+import datetime
+import uuid
+import bcrypt  # For password hashing
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Define database file
 DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
+logger.info(f"Database file path: {DB_FILE}")
 
 # Drinks menu data with images
 DRINKS_MENU = [
@@ -72,13 +82,56 @@ MENU_INVENTORY_MAPPING = {
     "Lychee Strawberry Frost": ["milk", "lychee", "strawberry"]
 }
 
+# Function to establish a database connection
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# Function to hash passwords
+def hash_password(password):
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt)
 
 # Initialize the database
 def initialize_database():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON;")
 
     # Create tables
+
+    # Users table: stores customer information, including RFID card ID and available credit.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT NOT NULL,
+            rfid_card_id TEXT UNIQUE,
+            credit       REAL DEFAULT 100.0
+        );
+    """)
+
+    # Admin users table: stores administrator credentials.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            admin_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            username   TEXT UNIQUE NOT NULL,
+            password   TEXT NOT NULL
+        );
+    """)
+
+    # Create the admin_logs table to log admin logins
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER,
+            ip_address TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_id) REFERENCES admin_users(id)
+        )
+    """)
+
+    # Menu table: stores the drinks/menu items.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS menu (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +143,28 @@ def initialize_database():
         )
     """)
 
+    # Create inventory_list table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventory_list (
+            inventory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inventory_name TEXT NOT NULL,
+            amount INTEGER NOT NULL
+        )
+    """)
+
+    # Create menu_inventory table : mapping
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS menu_inventory (
+            id INTEGER,
+            name TEXT,
+            inventory_id INTEGER,
+            inventory_name TEXT,
+            FOREIGN KEY(id) REFERENCES menu(id),
+            FOREIGN KEY(inventory_id) REFERENCES inventory_list(inventory_id) 
+        )
+    """)
+
+    # Orders table: records each transaction.
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS orders (
         order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,10 +172,13 @@ def initialize_database():
         source TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'Pending',
         timestamp TEXT NOT NULL,  -- Store time as Singapore Time
+        transaction_id TEXT,
+        rfid_card_id   TEXT,
         FOREIGN KEY (item_id) REFERENCES menu (id)
     )
     """)
 
+    # Sales table: records individual sale items linked to orders.
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS sales (
         sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,40 +192,8 @@ def initialize_database():
     )
     """)
 
-
-
-    # Create inventory_list table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS inventory_list (
-            inventory_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inventory_name TEXT NOT NULL,
-            amount INTEGER NOT NULL
-        )
-    """)
-
-    # Create menu_inventory table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS menu_inventory (
-            id INTEGER,
-            name TEXT,
-            inventory_id INTEGER,
-            inventory_name TEXT,
-            FOREIGN KEY(id) REFERENCES menu(id),
-            FOREIGN KEY(inventory_id) REFERENCES inventory_list(inventory_id) 
-        )
-    """)
-
-    # Create the admin_users table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS admin_users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            password TEXT NOT NULL
-        )
-    """)
-
     # Insert admin users with password '123456'
-    admins = [
+    admin_users = [
         ('admin1', '123456'),
         ('admin2', '123456'),
         ('admin3', '123456'),
@@ -155,33 +201,36 @@ def initialize_database():
     ]
 
     cursor.executemany("""
-        INSERT INTO admin_users (username, password)
+        INSERT OR IGNORE INTO admin_users (username, password)
         VALUES (?, ?)
-    """, admins)
+    """, admin_users)
+    logger.info("Inserted (or ignored duplicates for) %d admin user(s).", len(admin_users))
+    
+    # Populate users table using INSERT OR IGNORE
+    users = [
+        ("John Doe", "RFID123456", 100.0),
+        ("Jane Smith", "RFID654321", 100.0)
+    ]
 
-    # Create the admin_logs table to log admin logins
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS admin_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER,
-            ip_address TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (admin_id) REFERENCES admin_users(id)
-        )
-    """)
-
+    cursor.executemany("""
+        INSERT OR IGNORE INTO users (name, rfid_card_id, credit)
+        VALUES (?, ?, ?)
+    """, users)
+    logger.info("Inserted (or ignored duplicates for) %d user(s).", len(users))
+ 
     # Populate the menu table
     cursor.executemany("""
         INSERT INTO menu (name, category, price, availability, image)
         VALUES (:name, :category, :price, :availability, :image)
     """, DRINKS_MENU)
+    logger.info("Inserted (or ignored duplicates for) %d menu item(s).", len(DRINKS_MENU))
 
     # Populate the inventory_list table
     cursor.executemany(""" 
         INSERT INTO inventory_list(inventory_name, amount)
         VALUES (:inventory_name, :amount)
     """, INVENTORY_LIST)
-
+    logger.info("Inserted (or ignored duplicates for) %d inventory item(s).", len(INVENTORY_LIST))
     
     # Populate menu_inventory table
     for drink_name, ingredients in MENU_INVENTORY_MAPPING.items():
@@ -204,6 +253,76 @@ def initialize_database():
     conn.close()
     print(f"Database initialized and populated with {len(DRINKS_MENU)} drinks!")
     print(f"Database initialized and populated with {len(INVENTORY_LIST)} inventories!")
+
+def record_rfid_transaction(user_id, item_index, price, rfid_card_id):
+    """
+    Records an RFID transaction:
+      - Deducts the payment amount from the user's credit.
+      - Inserts an order record with source 'RFID' and the rfid_card_id.
+      - Inserts a corresponding sales record.
+    All changes are committed atomically.
+    
+    Parameters:
+      user_id (int): The user's ID.
+      item_index (int): Index of the purchased item (0-based).
+      price (float): The price of the item.
+      rfid_card_id (str): The RFID card identifier.
+    """
+    current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Deduct the price from the user's credit.
+        cursor.execute("UPDATE users SET credit = credit - ? WHERE user_id = ?", (price, user_id))
+        
+        # Generate a transaction_id using the current timestamp.
+        transaction_id = str(datetime.datetime.now().timestamp())
+        
+        # Insert the RFID transaction into the orders table.
+        cursor.execute("""
+            INSERT INTO orders (item_id, source, status, timestamp, transaction_id, rfid_card_id)
+            VALUES (?, 'RFID', 'Completed', ?, ?, ?)
+        """, (item_index + 1, current_timestamp, transaction_id, rfid_card_id))
+        order_id = cursor.lastrowid
+        
+        # Insert a corresponding record in the sales table.
+        cursor.execute("""
+            INSERT INTO sales (order_id, item_id, timestamp, price, source)
+            VALUES (?, ?, ?, ?, 'RFID')
+        """, (order_id, item_index + 1, current_timestamp, price))
+        
+        conn.commit()
+        logger.info("RFID transaction recorded: Order ID %s for RFID card %s.", order_id, rfid_card_id)
+    except Exception as e:
+        conn.rollback()
+        logger.error("Error recording RFID transaction: %s", e)
+    finally:
+        conn.close()
+
+def simulate_rfid_transaction():
+    """
+    Simulate an RFID payment transaction.
+    For demonstration purposes, this function simulates a transaction:
+      - Assumes user with user_id = 1 (John Doe) is logged in.
+      - Uses the first menu item (index 0) with its price.
+      - Uses a test RFID card ID.
+    """
+    test_user_id = 1                # Assume user with ID 1 is logged in.
+    test_item_index = 0             # For example, "Classic Coffee" (first item in the menu)
+    
+    # Retrieve the price for the test item from the database
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT price FROM menu WHERE id = ?", (test_item_index + 1,))
+    row = cursor.fetchone()
+    conn.close()
+    if row is None:
+        logger.error("Test menu item not found.")
+        return
+    test_price = row[0]
+    
+    test_rfid_card_id = "ABC123DEF456"  # Example RFID card ID
+    record_rfid_transaction(test_user_id, test_item_index, test_price, test_rfid_card_id)
 
 # Run the script
 if __name__ == "__main__":

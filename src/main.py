@@ -37,6 +37,9 @@ SGT = pytz.timezone('Asia/Singapore')
 def get_sg_time():
     return datetime.now(SGT).strftime('%Y-%m-%d %H:%M:%S')
 
+# Correct 4-digit passcode
+CORRECT_PASSCODE = "1234"
+
 #function to check inventory before confirming order
 def check_inventory_status(drink_id):
     """
@@ -101,16 +104,26 @@ def key_pressed(key):
     Handles keypress events and manages input buffer for multi-digit inputs.
     """
     global input_buffer, awaiting_multi_digit_input
+    print(f"[DEBUG] Key Pressed: {key}")  # ✅ Add debug print
+
     if awaiting_multi_digit_input and key in range(10):  # If awaiting input, add digits to buffer
         input_buffer += str(key)
+        print(f"[DEBUG] Input Buffer: {input_buffer}")  # ✅ Show buffer status
+
     elif awaiting_multi_digit_input and key == "#":  # Confirm multi-digit input with '#'
         if input_buffer:  # Add to queue only if input exists
             shared_keypad_queue.put(input_buffer)
+            print(f"[DEBUG] Sent to Queue: {input_buffer}")  # ✅ Show what's sent to queue
             input_buffer = ""
+
     elif awaiting_multi_digit_input and key == "*":  # Clear buffer on '*'
         input_buffer = ""
+        print("[DEBUG] Buffer Cleared")  # ✅ Debug buffer clear
+
     elif not awaiting_multi_digit_input and key in range(10):  # Directly handle single-digit inputs
         shared_keypad_queue.put(str(key))
+        print(f"[DEBUG] Single Digit Input Sent: {key}")  # ✅ Debug single digit queue
+
 
 # Fetch available menu items from the database
 def fetch_menu():
@@ -166,7 +179,7 @@ def fetch_next_order():
         cursor = conn.cursor()
 
         # Fetch remote orders
-        response = requests.get("http://localhost:30001/order")
+        response = requests.get("http://localhost:5000/order")
         if response.status_code == 200:
             remote_orders = response.json()
             for order in remote_orders:
@@ -205,11 +218,46 @@ def get_initials(name):
     initials = ''.join(word[0].upper() for word in words)
     return initials
 
+def enter_passcode():
+    """Handles passcode input from keypad using shared_keypad_queue and updates LCD dynamically."""
+    lcd = LCD.lcd()
+    lcd.lcd_clear()
+    lcd.lcd_display_string("Enter Passcode:", 1)
+
+    input_buffer = ""  # Reset input buffer
+    awaiting_multi_digit_input = True  # Enable multi-digit mode
+
+    while len(input_buffer) < 4:  # Expect 4-digit passcode
+        # ✅ Dynamically update LCD while waiting for input
+        lcd.lcd_display_string(f"Input: {input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
+
+        while shared_keypad_queue.empty():
+            time.sleep(0.1)  # ✅ Continue checking input queue while allowing UI updates
+
+        key = shared_keypad_queue.get()
+        print(f"[DEBUG] Key received: {key}")  # ✅ Debug received key
+
+        if key.isdigit():  # Append digit to passcode
+            input_buffer += key
+
+        elif key == "*":  # Clear input buffer
+            input_buffer = ""
+            print("[DEBUG] Input cleared")
+
+        elif key == "#":  # Confirm input early (optional)
+            break
+
+    awaiting_multi_digit_input = False  # Reset mode
+    print(f"[DEBUG] Final entered passcode: {input_buffer}")  # ✅ Debug final passcode
+    return input_buffer  # Return entered passcode
+
+
 def main():
     """
     Main function to handle the vending machine's operations.
     """
     global input_buffer, awaiting_multi_digit_input
+    global failed_attempt
 
     # Initialize hardware modules
     led.init()
@@ -229,6 +277,7 @@ def main():
     keypad.init(key_pressed)
     keypad_thread = Thread(target=keypad.get_key)
     keypad_thread.start()
+    failed_attempt = 0
 
     # Initialize LCD display
     lcd = LCD.lcd()
@@ -260,93 +309,146 @@ def main():
                 time.sleep(3)
             else:
                 break  # No more pending orders, proceed to local order input
-
-        # Now, wait for a local order, but continue checking for remote orders
+        
         lcd.lcd_clear()
-        lcd.lcd_display_string("Enter Item #", 1)
-
-        # Display menu on the terminal and LCD
-        menu = fetch_menu()
-        for item in menu:
-            print(f"{item[0]}. {item[1]} - ${item[2]:.2f}")
-
-        # Wait for keypad input but check for remote orders periodically
+        lcd.lcd_display_string("1. Admin", 1)
+        lcd.lcd_display_string("2. Customer", 2)
+        
         input_buffer = ""
-        awaiting_multi_digit_input = True
-        while not shared_keypad_queue.qsize():
-            lcd.lcd_display_string(f"Input: {input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
-            time.sleep(0.1)
+        key = shared_keypad_queue.get()
 
-            # While waiting, check for new remote orders
-            next_order = fetch_next_order()
-            if next_order:
-                break  # Immediately process new order
+        if key == "1":
+            lcd.lcd_clear()
+            lcd.lcd_display_string("Passcode Login", 1)
+            time.sleep(2)
 
-        # If a new remote order was found, process it before accepting local input
-        if next_order:
-            continue  # Go back to the top of the loop to process the pending order
+            passcode = enter_passcode()
+            awaiting_multi_digit_input = False
 
-        keyvalue = shared_keypad_queue.get()
-        awaiting_multi_digit_input = False
-
-        try:
-            item_id = int(keyvalue)
-            if any(item[0] == item_id for item in menu):  # Validate item ID
-                selected_item = next(item for item in menu if item[0] == item_id)
-                initials = get_initials(selected_item[1])
-
-                # Check inventory before confirmation
-                print(f" Checking inventory for Drink #{item_id}...")
-                if not check_inventory_status(item_id):
-                    print(f" [ERROR] Not enough stock for Drink #{item_id}.")
-                    lcd.lcd_clear()
-                    lcd.lcd_display_string("Not enough stock", 1)
-                    time.sleep(2)
-                    continue  # Skip the rest of the loop and go back to drink selection
-
-                # Display selected drink details
-                lcd.lcd_clear()
-                lcd.lcd_display_string(f"Selected: {initials}", 1)
-                lcd.lcd_display_string(f"Price: ${selected_item[2]:.2f}", 2)
-                buzzer.beep(0.2, 0.1, 1)
+            if passcode == CORRECT_PASSCODE:
+                failed_attempt = 0  #Reset failed attempts on success
+                lcd.lcd_clear() 
+                lcd.lcd_display_string("Access Granted", 1)
                 time.sleep(2)
-
-                # Confirm order
+            else:
+                failed_attempt += 1  #Increment failed attempts
                 lcd.lcd_clear()
-                lcd.lcd_display_string("Confirm?", 1)
-                lcd.lcd_display_string("1-Yes 2-No", 2)
-                confirm_key = shared_keypad_queue.get()
-                buzzer.beep(0.1, 0.1, 1)
-
-                if confirm_key == "1":  # User confirms the order
-                    order_id = insert_order(item_id, "local")
+                lcd.lcd_display_string("Access Denied", 1)
+                buzzer.beep(0.5, 0.5, 2)
+                time.sleep(2)
+                # ✅ If failed attempts reach 5, send alert and reset counter
+                if failed_attempt >= 2:
                     lcd.lcd_clear()
-                    lcd.lcd_display_string(f"Preparing #{item_id}", 1)
+                    lcd.lcd_display_string("Too Many Attempts!", 1)
+                    time.sleep(3)
+                    failed_attempt = 0
+        elif key == "2":            
+            #Collect Drink or Order
+            lcd.lcd_clear()
+            lcd.lcd_display_string("1. Collect", 1)
+            lcd.lcd_display_string("2. Order", 2)
 
-                    # Call the preparation function
-                    if prepare.prepare_drink(item_id):
-                        update_order_status(order_id, "Completed")
+            input_buffer = ""
+            select_mode_key = shared_keypad_queue.get()
+
+            if select_mode_key == "1":
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Coming soon")
+                time.sleep(2)
+            elif select_mode_key == "2":
+                # Now, wait for a local order, but continue checking for remote orders
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Enter Item #", 1)
+
+                # Display menu on the terminal and LCD
+                menu = fetch_menu()
+                for item in menu:
+                    print(f"{item[0]}. {item[1]} - ${item[2]:.2f}")
+
+                # Wait for keypad input but check for remote orders periodically
+                input_buffer = ""
+                awaiting_multi_digit_input = True
+                while not shared_keypad_queue.qsize():
+                    lcd.lcd_display_string(f"Input: {input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
+                    time.sleep(0.1)
+
+                    # While waiting, check for new remote orders
+                    next_order = fetch_next_order()
+                    if next_order:
+                        break  # Immediately process new order
+
+                # If a new remote order was found, process it before accepting local input
+                if next_order:
+                    continue  # Go back to the top of the loop to process the pending order
+
+                keyvalue = shared_keypad_queue.get()
+                awaiting_multi_digit_input = False
+
+                try:
+                    item_id = int(keyvalue)
+                    if any(item[0] == item_id for item in menu):  # Validate item ID
+                        selected_item = next(item for item in menu if item[0] == item_id)
+                        initials = get_initials(selected_item[1])
+
+                        # Check inventory before confirmation
+                        print(f" Checking inventory for Drink #{item_id}...")
+                        if not check_inventory_status(item_id):
+                            print(f" [ERROR] Not enough stock for Drink #{item_id}.")
+                            lcd.lcd_clear()
+                            lcd.lcd_display_string("Not enough stock", 1)
+                            time.sleep(2)
+                            continue  # Skip the rest of the loop and go back to drink selection
+
+                        # Display selected drink details
                         lcd.lcd_clear()
-                        lcd.lcd_display_string("Drink Ready!", 1)
+                        lcd.lcd_display_string(f"Selected: {initials}", 1)
+                        lcd.lcd_display_string(f"Price: ${selected_item[2]:.2f}", 2)
+                        buzzer.beep(0.2, 0.1, 1)
+                        time.sleep(2)
+
+                        # Confirm order
+                        lcd.lcd_clear()
+                        lcd.lcd_display_string("Confirm?", 1)
+                        lcd.lcd_display_string("1-Yes 2-No", 2)
+                        confirm_key = shared_keypad_queue.get()
+                        buzzer.beep(0.1, 0.1, 1)
+
+                        if confirm_key == "1":  # User confirms the order
+                            order_id = insert_order(item_id, "local")
+                            lcd.lcd_clear()
+                            lcd.lcd_display_string(f"Preparing #{item_id}", 1)
+
+                            # Call the preparation function
+                            if prepare.prepare_drink(item_id):
+                                update_order_status(order_id, "Completed")
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string("Drink Ready!", 1)
+                            else:
+                                update_order_status(order_id, "Failed")
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string("Prep Failed", 1)
+                            time.sleep(2)
+                        elif confirm_key == "2":
+                            lcd.lcd_clear()
+                            lcd.lcd_display_string("Cancelled", 1)
+                            time.sleep(2)
                     else:
-                        update_order_status(order_id, "Failed")
                         lcd.lcd_clear()
-                        lcd.lcd_display_string("Prep Failed", 1)
-                    time.sleep(2)
-                elif confirm_key == "2":
+                        lcd.lcd_display_string("Invalid Item", 1)
+                        buzzer.beep(0.2, 0.1, 2)
+                        time.sleep(2)
+                except ValueError:
                     lcd.lcd_clear()
-                    lcd.lcd_display_string("Cancelled", 1)
+                    lcd.lcd_display_string("Invalid Input", 1)
+                    buzzer.beep(0.2, 0.1, 2)
                     time.sleep(2)
             else:
-                lcd.lcd_clear()
-                lcd.lcd_display_string("Invalid Item", 1)
-                buzzer.beep(0.2, 0.1, 2)
-                time.sleep(2)
-        except ValueError:
-            lcd.lcd_clear()
-            lcd.lcd_display_string("Invalid Input", 1)
-            buzzer.beep(0.2, 0.1, 2)
-            time.sleep(2)
+                continue
+        else:
+            continue
+
+
+    
 
 if __name__ == "__main__":
     main()
