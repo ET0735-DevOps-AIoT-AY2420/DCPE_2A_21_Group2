@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import pytz
 from datetime import datetime
@@ -7,7 +8,7 @@ from flask_cors import CORS
 app = Flask(__name__, template_folder="templates")
 CORS(app)
 
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 # Define Singapore Time Zone
 SGT = pytz.timezone('Asia/Singapore')

@@ -1,7 +1,8 @@
+import os
 import sqlite3
 
 # Define database file
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 # Drinks menu data with images
 DRINKS_MENU = [
@@ -133,6 +134,39 @@ def initialize_database():
             inventory_name TEXT,
             FOREIGN KEY(id) REFERENCES menu(id),
             FOREIGN KEY(inventory_id) REFERENCES inventory_list(inventory_id) 
+        )
+    """)
+
+    # Create the admin_users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL
+        )
+    """)
+
+    # Insert admin users with password '123456'
+    admins = [
+        ('admin1', '123456'),
+        ('admin2', '123456'),
+        ('admin3', '123456'),
+        ('admin4', '123456')
+    ]
+
+    cursor.executemany("""
+        INSERT INTO admin_users (username, password)
+        VALUES (?, ?)
+    """, admins)
+
+    # Create the admin_logs table to log admin logins
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER,
+            ip_address TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_id) REFERENCES admin_users(id)
         )
     """)
 

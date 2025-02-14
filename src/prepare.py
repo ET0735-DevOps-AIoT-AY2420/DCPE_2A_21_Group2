@@ -1,3 +1,4 @@
+import os
 import time
 import sqlite3
 from hal import hal_servo as servo
@@ -11,7 +12,7 @@ buzzer.init()
 led.init()
 
 # Database File Location
-DB_FILE = "vending_machine.db"
+DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
 def update_inventory(drink_id):
     """
