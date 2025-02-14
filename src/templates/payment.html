@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Vending Machine - Payment</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+    }
+    .container {
+      width: 400px;
+      margin: auto;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0px 0px 10px gray;
+      margin-top: 100px;
+    }
+    select, button {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      font-size: 16px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #message {
+      font-weight: bold;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Select an Item and Checkout</h1>
+    <label for="item_select">Pick an item:</label>
+    <select id="item_select">
+      <option value="0">Classic Coffee ($2.50)</option>
+      <option value="1">Strawberry Latte ($3.00)</option>
+      <option value="2">Lychee Milk Tea ($3.50)</option>
+      <option value="3">Mocha Strawberry Twist ($4.00)</option>
+      <option value="4">Lime Infused Coffee ($2.75)</option>
+    </select>
+    <button id="checkout-button">Pay with Card</button>
+    <button id="rfid-button">Pay with RFID</button>
+    <button id="qr-button">Pay with QR</button>
+    <p id="message"></p>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    // Grab DOM elements
+    const checkoutButton = document.getElementById('checkout-button');
+    const rfidButton = document.getElementById('rfid-button');
+    const qrButton = document.getElementById('qr-button');
+    const itemSelect = document.getElementById('item_select');
+    const messageDisplay = document.getElementById('message');
+
+    // Handle card payment
+    checkoutButton.addEventListener('click', () => {
+      const selectedIndex = itemSelect.value;
+      messageDisplay.textContent = "Processing card payment...";
+      fetch('/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.url) {
+          // Redirect to Stripe checkout
+          window.location.href = data.url;
+        } else {
+          messageDisplay.textContent = "Error: " + data.error;
+          messageDisplay.style.color = "red";
+        }
+      })
+      .catch(err => {
+        messageDisplay.textContent = "Error creating checkout session.";
+        messageDisplay.style.color = "red";
+        console.error('Error creating checkout session:', err);
+      });
+    });
+
+    // Handle RFID payment
+    rfidButton.addEventListener('click', () => {
+      const selectedIndex = itemSelect.value;
+      messageDisplay.textContent = "Processing RFID payment...";
+      fetch('/rfid-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.redirect) {
+          // Redirect if the server sends a redirect URL
+          window.location.href = data.redirect;
+        } else if (data.error) {
+          messageDisplay.textContent = `❌ ${data.error}`;
+          messageDisplay.style.color = "red";
+        } else if (data.message) {
+          messageDisplay.textContent = `✅ ${data.message} New balance: $${data.new_balance}`;
+          messageDisplay.style.color = "green";
+        }
+      })
+      .catch(err => {
+        messageDisplay.textContent = "❌ Error processing RFID payment.";
+        messageDisplay.style.color = "red";
+        console.error('Error processing RFID payment:', err);
+      });
+    });
+
+    // Handle QR payment
+    qrButton.addEventListener('click', () => {
+      const selectedIndex = itemSelect.value;
+      messageDisplay.textContent = "Generating QR code for payment...";
+      fetch('/qr-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_index: selectedIndex })
+      })
+      .then(response => response.json())
+      .then(data => {
+        // Expecting the server to return a transaction_id for polling
+        if (data.transaction_id) {
+          messageDisplay.textContent = "QR code generated. Waiting for payment confirmation...";
+          // Start polling for the payment status using the transaction_id
+          pollForPayment(data.transaction_id);
+        } else if (data.error) {
+          messageDisplay.textContent = "Error: " + data.error;
+          messageDisplay.style.color = "red";
+        }
+      })
+      .catch(err => {
+        messageDisplay.textContent = "Error processing QR payment.";
+        messageDisplay.style.color = "red";
+        console.error('Error processing QR payment:', err);
+      });
+    });
+
+    // Polling function for QR payment status
+    function pollForPayment(transactionId) {
+      fetch(`/payment-status?transaction_id=${transactionId}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'Paid') {
+            // When payment is confirmed, redirect to the provided URL (for example, success.html)
+            window.location.href = data.redirect;
+          } else {
+            // Continue polling every 5 seconds
+            setTimeout(() => pollForPayment(transactionId), 5000);
+          }
+        })
+        .catch(err => {
+          console.error("Error checking payment status:", err);
+        });
+    }
+  </script>
+</body>
+</html>
