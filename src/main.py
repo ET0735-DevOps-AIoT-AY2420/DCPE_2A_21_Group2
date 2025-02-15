@@ -1,7 +1,11 @@
+import cv2
 import os
 import time
 from datetime import datetime
 from threading import Thread
+from picamera2 import Picamera2
+from pyzbar.pyzbar import decode
+import qrcode
 import queue
 import pytz
 import sqlite3
@@ -30,6 +34,10 @@ shared_keypad_queue = queue.Queue()
 # Database file location
 DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
 
+# Define QR Code Save Directory
+QR_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodes")
+os.makedirs(QR_FOLDER, exist_ok=True)  # Ensure directory exists
+
 # Define Singapore Time Zone
 SGT = pytz.timezone('Asia/Singapore')
 
@@ -39,6 +47,88 @@ def get_sg_time():
 
 # Correct 4-digit passcode
 CORRECT_PASSCODE = "1234"
+
+TELEGRAM_BOT_TOKEN = "7722732406:AAFEAXz_RTJNRAnE9aRnOVtlN18G7V-0wWU"
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+#bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+def generate_and_send_qr(user_id, phone_number, chat_id, order_id, QR_FOLDER):
+    """
+    Generates a QR code for payment and sends it to the user via Telegram.
+    Returns the filename of the QR code.
+    """
+    qr_data = f"ORDER_{order_id}_{phone_number}"
+    qr_filename = os.path.join(QR_FOLDER, f"qr_{order_id}.png")
+
+    qr = qrcode.make(qr_data)
+    qr.save(qr_filename)
+
+    # ✅ Send QR Code to Telegram
+    with open(qr_filename, "rb") as qr_file:
+        files = {"photo": qr_file}
+        data = {"chat_id": chat_id, "caption": "Scan this QR code to complete payment."}
+        response = requests.post(TELEGRAM_API_URL, data=data, files=files)
+
+        if response.status_code == 200:
+            print("[INFO] QR Code sent to Telegram successfully.")
+        else:
+            print("[ERROR] Failed to send QR Code to Telegram.")
+
+    return qr_data
+
+def is_camera_in_use():
+    """Check if another process is using the camera."""
+    return "picamera2" in os.popen("ps aux | grep picamera2 | grep -v grep").read()
+
+def scan_qr(scan_time=30):
+    """
+    Scan QR code using Raspberry Pi camera.
+    Stops when a QR code is detected or after scan_time seconds.
+    """
+    if is_camera_in_use():
+        print("[ERROR] Camera is already in use by another process.")
+        return None
+
+    picam2 = Picamera2()
+    video_config = picam2.create_video_configuration(main={"size": (640, 480)})
+    picam2.configure(video_config)
+
+    scanning = True
+    start_time = time.time()
+
+    picam2.start()
+    print("[INFO] QR Scanner started...")
+
+    detected_qr = None  # Store detected QR
+
+    while scanning:
+        frame = picam2.capture_array()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        codes = decode(gray)
+
+        for code in codes:
+            detected_qr = code.data.decode("utf-8")
+            print(f"✅ QR Code Detected: {detected_qr}")
+            scanning = False  # Stop loop
+
+        # Show the camera feed
+        cv2.imshow("QR Code Scanner", frame)
+
+        # Stop scanning if time limit is exceeded
+        if time.time() - start_time > scan_time:
+            print("[WARNING] Scanning timed out.")
+            break
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to manually stop
+            print("[INFO] Scan manually stopped.")
+            break
+
+    # ✅ Ensure proper cleanup
+    picam2.stop()
+    picam2.close()
+    cv2.destroyAllWindows()
+
+    return detected_qr  # ✅ Return scanned QR code (or None if failed)
 
 #function to check inventory before confirming order
 def check_inventory_status(drink_id):
@@ -266,7 +356,6 @@ def get_user_id(phone_number):
     conn.close()
     return user[0] if user else None  # Return user_id if found, else None
 
-
 def main():
     """
     Main function to handle the vending machine's operations.
@@ -470,8 +559,6 @@ def main():
                             lcd.lcd_clear()
                             lcd.lcd_display_string("1. RFID", 1)
                             lcd.lcd_display_string("2. QR", 2)
-
-
                             payment_key = shared_keypad_queue.get()
                             if payment_key == "1":  # ✅ User selects RFID payment
                                 rfid_pay = True
@@ -511,9 +598,39 @@ def main():
                                     else:                                        
                                         paid = True
                                         break
-                            else :
-                                continue
 
+                            #QR payment             
+                            elif payment_key == "2":
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string("Generating QR", 1)
+                                time.sleep(2)
+
+                                # ✅ Fetch user details from DB
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT phone_number, chat_id FROM users WHERE user_id = ?", (user_id,))
+                                user = cursor.fetchone()
+                                conn.close()
+                                if not user:
+                                    lcd.lcd_clear()
+                                    lcd.lcd_display_string("User Not Found", 1)
+                                    time.sleep(2)
+                                else:
+                                    phone_number, chat_id = user
+                                    # ✅ Generate and Send QR
+                                    qr_data = generate_and_send_qr(user_id, phone_number, chat_id, order_id, QR_FOLDER)
+
+                                    lcd.lcd_clear()
+                                    lcd.lcd_display_string("Scan QR to Pay", 1)
+                                    lcd.lcd_display_string("Opening Camera", 2)
+                                    time.sleep(2)
+                                    # ✅ Open Camera for Scanning
+                                    scanned_qr = scan_qr(30)
+                                    if scanned_qr == qr_data:
+                                        lcd.lcd_clear()
+                                        lcd.lcd_display_string("Payment Success", 1)
+                                        lcd.lcd_display_string("Enjoy Your Drink", 2)
+                                        time.sleep(2)
 
                             conn = sqlite3.connect(DB_FILE)
                             cursor = conn.cursor()
