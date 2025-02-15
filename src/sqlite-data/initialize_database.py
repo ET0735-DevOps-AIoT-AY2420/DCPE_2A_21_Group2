@@ -223,6 +223,12 @@ def initialize_database():
         );
     """)
 
+    # ✅ Modify the orders table to include payment_source if missing
+    cursor.execute("""
+        ALTER TABLE orders ADD COLUMN payment_source TEXT DEFAULT NULL;
+    """)
+
+
     # Insert admin users with password '123456'
     admin_users = [
         ('admin1', '123456'),

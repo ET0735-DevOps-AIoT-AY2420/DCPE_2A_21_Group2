@@ -218,8 +218,8 @@ def place_order():
         # ✅ Insert into orders table
         current_timestamp = get_sg_time()
         cursor.execute("""
-            INSERT INTO orders (item_id, user_id, source, status, timestamp)
-            VALUES (?, ?, 'remote', 'Pending', ?)
+            INSERT INTO orders (item_id, user_id, source, status, timestamp, payment_source)
+            VALUES (?, ?, 'remote', 'Pending', ?, "card")
         """, (item_index + 1, user_id, current_timestamp))
         order_id = cursor.lastrowid
 

@@ -140,7 +140,7 @@ def fetch_menu():
     return menu
 
 # Insert a new order into the database
-def insert_order(item_id, user_id, source):
+def insert_order(item_id, user_id, source, payment_source):
     """
     Inserts a new order into the database with a valid user_id.
 
@@ -155,9 +155,9 @@ def insert_order(item_id, user_id, source):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO orders (item_id, user_id, source, status, timestamp) 
-        VALUES (?, ?, ?, 'Pending', ?)
-    """, (item_id, user_id, source, get_sg_time()))
+        INSERT INTO orders (item_id, user_id, source, status, timestamp, payment_source) 
+        VALUES (?, ?, ?, 'Pending', ?, ?)
+    """, (item_id, user_id, source, get_sg_time(), payment_source))
     
     conn.commit()
     order_id = cursor.lastrowid  # Get the ID of the inserted order
@@ -272,7 +272,7 @@ def main():
     Main function to handle the vending machine's operations.
     """
     global input_buffer, awaiting_multi_digit_input
-    global failed_attempt
+    global failed_attempt, rfid_pay
 
     # Initialize hardware modules
     led.init()
@@ -461,20 +461,135 @@ def main():
                         buzzer.beep(0.1, 0.1, 1)
 
                         if confirm_key == "1":  # User confirms the order
-                            order_id = insert_order(item_id, user_id, "local")
+                            order_id = insert_order(item_id, user_id, "local", "RFID")
+                            
                             lcd.lcd_clear()
-                            lcd.lcd_display_string(f"Preparing #{item_id}", 1)
+                            lcd.lcd_display_string("Procceding to",1)
+                            lcd.lcd_display_string("Payment",2)
+                            time.sleep(1)
+                            lcd.lcd_clear()
+                            lcd.lcd_display_string("1. RFID", 1)
+                            lcd.lcd_display_string("2. QR", 2)
 
-                            # Call the preparation function
-                            if prepare.prepare_drink(item_id):
-                                update_order_status(order_id, "Completed")
+
+                            payment_key = shared_keypad_queue.get()
+                            if payment_key == "1":  # ✅ User selects RFID payment
+                                rfid_pay = True
                                 lcd.lcd_clear()
-                                lcd.lcd_display_string("Drink Ready!", 1)
+                                lcd.lcd_display_string("Scan RFID Card", 1)
+                        
+                                # ✅ Fetch user's RFID card ID from database
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT rfid_card_id, credit FROM users WHERE user_id = ?", (user_id,))
+                                user = cursor.fetchone()
+                                conn.close()
+
+                                if not user:
+                                    lcd.lcd_clear()
+                                    lcd.lcd_display_string("No RFID Linked", 1)
+                                    lcd.lcd_display_string("Use QR Instead", 2)
+                                    time.sleep(2)
+                                    continue
+                                paid = False
+                                start_time = time.time()  # Get the start time
+                                while time.time() - start_time < 10:  # Run for 10 seconds
+                                    user_rfid, user_credit = user
+                                    # ✅ Wait for user to scan their RFID card
+                                    scanned_rfid = reader.read_id_no_block()
+                                    scanned_rfid = str(scanned_rfid)                                                   
+                                    if scanned_rfid is None or scanned_rfid == "" or str(scanned_rfid).strip().lower() == "none":
+                                        continue
+                                        paid = False
+                                    elif scanned_rfid != user_rfid:
+                                        lcd.lcd_clear()
+                                        lcd.lcd_display_string("Invalid Card!", 1)
+                                        lcd.lcd_display_string("Try Again", 2)
+                                        buzzer.beep(0.5, 0.1, 2)
+                                        time.sleep(2)
+                                        paid = False
+                                    else:                                        
+                                        paid = True
+                                        break
+                            else :
+                                continue
+
+
+                            conn = sqlite3.connect(DB_FILE)
+                            cursor = conn.cursor()
+                            # ✅ Check if the user has enough balance
+                            cursor.execute("SELECT price FROM menu WHERE id = ?", (item_id,))
+                            item_price = cursor.fetchone()
+                        
+                            if item_price is None or user_credit < item_price[0 ]:  # ✅ Use index instead of dictionary access
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string("Insufficient", 1)
+                                lcd.lcd_display_string("Balance!", 2)
+                                buzzer.beep(0.5, 0.1, 3)
+                                time.sleep(2)
+                                conn.close()  # ✅ Close connection before exiting
+                                paid = False
+                                continue  # Restart payment process
+                            conn.commit()
+                            conn.close()
+                        
+                        
+                            if (paid):
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()    
+                                # ✅ Deduct amount and update balance
+                                new_credit = user_credit - item_price[0]  # ✅ Use index instead of `item_price["price"]`
+                                cursor.execute("UPDATE users SET credit = ? WHERE user_id = ?", (new_credit, user_id))
+                                if(rfid_pay):
+                                    # ✅ Mark order as paid
+                                    cursor.execute("UPDATE orders SET status = 'Paid', payment_source = 'RFID' WHERE order_id = ?", (order_id,))
+                                    # ✅ Log payment in sales table
+                                    cursor.execute("""
+                                    INSERT INTO sales (order_id, item_id, timestamp, price, source, payment_source)
+                                    VALUES (?, ?, ?, ?, 'local', 'RFID')
+                                    """, (order_id, item_id, get_sg_time(), item_price[0]))
+                                else :
+                                    cursor.execute("UPDATE orders SET status = 'Paid', payment_source = 'QR' WHERE order_id = ?", (order_id,))
+                                    cursor.execute("""
+                                    INSERT INTO sales (order_id, item_id, timestamp, price, source, payment_source)
+                                    VALUES (?, ?, ?, ?, 'local', 'QR')
+                                    """, (order_id, item_id, get_sg_time(), item_price[0]))                        
+                                conn.commit()
+                                conn.close()  # ✅ Ensure connection is only closed at the end
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string("Payment Success", 1)
+                                lcd.lcd_display_string("Enjoy Your Drink!", 2)
+                                time.sleep(2)
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string(f"Preparing #{item_id}", 1)
+
+                                # ✅ Check if the order status is 'Paid' before preparing the drink
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT status FROM orders WHERE order_id = ?", (order_id,))
+                                order_status = cursor.fetchone()
+                                conn.close()
+
+                                if order_status and order_status[0] == "Paid":
+                                    if prepare.prepare_drink(item_id):
+                                        update_order_status(order_id, "Completed")
+                                        lcd.lcd_clear()
+                                        lcd.lcd_display_string("Drink Ready!", 1)
+                                    else:
+                                        update_order_status(order_id, "Failed")
+                                        lcd.lcd_clear()
+                                        lcd.lcd_display_string("Prep Failed", 1)
+                                    time.sleep(2)
+                                else:
+                                    print(f"[ERROR] Order {order_id} is not paid. Skipping preparation.")
+                                    lcd.lcd_clear()
+                                    lcd.lcd_display_string("Payment Required", 1)
+                                    time.sleep(2)
                             else:
-                                update_order_status(order_id, "Failed")
-                                lcd.lcd_clear()
-                                lcd.lcd_display_string("Prep Failed", 1)
-                            time.sleep(2)
+                                    print(f"[ERROR] Order {order_id} is not paid. Skipping preparation.")
+                                    lcd.lcd_clear()
+                                    lcd.lcd_display_string("Payment Required", 1)
+                                    time.sleep(2)
                         elif confirm_key == "2":
                             lcd.lcd_clear()
                             lcd.lcd_display_string("Cancelled", 1)
