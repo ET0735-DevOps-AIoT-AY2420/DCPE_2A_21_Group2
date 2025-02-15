@@ -140,23 +140,30 @@ def fetch_menu():
     return menu
 
 # Insert a new order into the database
-def insert_order(item_id, source):
+def insert_order(item_id, user_id, source):
     """
-    Inserts a new order into the database.
+    Inserts a new order into the database with a valid user_id.
+
     Args:
         item_id (int): ID of the selected menu item.
-        source (str): Source of the order (e.g., "local").
+        user_id (int): ID of the user placing the order.
+        source (str): Source of the order (e.g., "local" or "remote").
+
     Returns:
         int: The order ID of the newly created order.
     """
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO orders (item_id, source, status, timestamp) VALUES (?, 'local', 'Pending', ?)", 
-               (item_id, get_sg_time()))
+    cursor.execute("""
+        INSERT INTO orders (item_id, user_id, source, status, timestamp) 
+        VALUES (?, ?, ?, 'Pending', ?)
+    """, (item_id, user_id, source, get_sg_time()))
+    
     conn.commit()
     order_id = cursor.lastrowid  # Get the ID of the inserted order
     conn.close()
     return order_id
+
 
 # Update the status of an order in the database
 def update_order_status(order_id, status):
@@ -172,29 +179,42 @@ def update_order_status(order_id, status):
     conn.commit()
     conn.close()
 
-# Fetch next order (Local & Remote)
 def fetch_next_order():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
 
-        # Fetch remote orders
+        # 🔹 Fetch remote orders from API
         response = requests.get("http://localhost:5000/order")
         if response.status_code == 200:
             remote_orders = response.json()
             for order in remote_orders:
                 order_id = order["order_id"]
                 item_id = order["item_id"]
+                user_id = order.get("user_id", None)  # Ensure `user_id` is stored
 
-                # Check if already in SQLite
+                # 🔹 Check if order already exists
                 cursor.execute("SELECT order_id FROM orders WHERE order_id = ?", (order_id,))
                 if not cursor.fetchone():
-                    cursor.execute("INSERT INTO orders (order_id, item_id, source, status) VALUES (?, ?, 'remote', 'Pending')", (order_id, item_id))
+                    cursor.execute("""
+                        INSERT INTO orders (order_id, item_id, user_id, source, status, timestamp)
+                        VALUES (?, ?, ?, 'remote', 'Pending', ?)
+                    """, (order_id, item_id, user_id, get_sg_time()))
                     conn.commit()
                     print(f"[DEBUG] Inserted Remote Order {order_id}")
 
-        # Fetch oldest pending order
-        cursor.execute("SELECT order_id, item_id, source FROM orders WHERE status = 'Pending' ORDER BY timestamp LIMIT 1")
+        # ✅ Fetch only `Paid` orders that haven't been collected
+        cursor.execute("""
+            SELECT s.order_id, s.item_id, o.source, o.user_id
+            FROM sales s
+            JOIN orders o ON s.order_id = o.order_id
+            LEFT JOIN collection_qr_codes c ON s.order_id = c.order_id
+            WHERE o.status = 'Paid' 
+              AND (c.status IS NULL OR c.status != 'Collected')  -- Ignore collected orders
+            ORDER BY s.timestamp
+            LIMIT 1
+        """)
+
         next_order = cursor.fetchone()
         conn.close()
 
@@ -203,6 +223,7 @@ def fetch_next_order():
     except Exception as e:
         print(f"[ERROR] fetch_next_order failed: {e}")
         return None
+
 
 
 # Generate initials for drink names
@@ -223,33 +244,27 @@ def enter_passcode():
     lcd = LCD.lcd()
     lcd.lcd_clear()
     lcd.lcd_display_string("Enter Passcode:", 1)
+    
+    input_buffer = ""
+    awaiting_multi_digit_input = True
 
-    input_buffer = ""  # Reset input buffer
-    awaiting_multi_digit_input = True  # Enable multi-digit mode
+    while not shared_keypad_queue.qsize():
+        lcd.lcd_display_string(f"{input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
+        time.sleep(0.1)
+                
+    passcode = shared_keypad_queue.get()
+    return passcode  # Return entered passcode
 
-    while len(input_buffer) < 4:  # Expect 4-digit passcode
-        # ✅ Dynamically update LCD while waiting for input
-        lcd.lcd_display_string(f"Input: {input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
-
-        while shared_keypad_queue.empty():
-            time.sleep(0.1)  # ✅ Continue checking input queue while allowing UI updates
-
-        key = shared_keypad_queue.get()
-        print(f"[DEBUG] Key received: {key}")  # ✅ Debug received key
-
-        if key.isdigit():  # Append digit to passcode
-            input_buffer += key
-
-        elif key == "*":  # Clear input buffer
-            input_buffer = ""
-            print("[DEBUG] Input cleared")
-
-        elif key == "#":  # Confirm input early (optional)
-            break
-
-    awaiting_multi_digit_input = False  # Reset mode
-    print(f"[DEBUG] Final entered passcode: {input_buffer}")  # ✅ Debug final passcode
-    return input_buffer  # Return entered passcode
+def get_user_id(phone_number):
+    """
+    Retrieves the user_id from the database based on the provided phone number.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM users WHERE phone_number = ?", (phone_number,))
+    user = cursor.fetchone()
+    conn.close()
+    return user[0] if user else None  # Return user_id if found, else None
 
 
 def main():
@@ -292,7 +307,7 @@ def main():
         while True:
             next_order = fetch_next_order()
             if next_order:
-                order_id, item_id, source = next_order  # Fetch the source (local/remote)
+                order_id, item_id, source, user_id = next_order  # Include user_id
 
                 lcd.lcd_clear()
                 lcd.lcd_display_string(f"Preparing #{item_id}", 1)
@@ -315,16 +330,21 @@ def main():
         lcd.lcd_display_string("2. Customer", 2)
         
         input_buffer = ""
+        awaiting_multi_digit_input = False
         key = shared_keypad_queue.get()
 
-        if key == "1":
+        if key == "1":    
             lcd.lcd_clear()
-            lcd.lcd_display_string("Passcode Login", 1)
+            lcd.lcd_display_string("Enter Passcode :", 1)
             time.sleep(2)
 
-            passcode = enter_passcode()
-            awaiting_multi_digit_input = False
-
+            input_buffer = ""
+            awaiting_multi_digit_input = True
+            while not shared_keypad_queue.qsize():
+                lcd.lcd_display_string(f"{'*' * len(input_buffer):16}", 2)
+                time.sleep(0.1)
+                
+            passcode = shared_keypad_queue.get()            
             if passcode == CORRECT_PASSCODE:
                 failed_attempt = 0  #Reset failed attempts on success
                 lcd.lcd_clear() 
@@ -336,13 +356,40 @@ def main():
                 lcd.lcd_display_string("Access Denied", 1)
                 buzzer.beep(0.5, 0.5, 2)
                 time.sleep(2)
-                # ✅ If failed attempts reach 5, send alert and reset counter
-                if failed_attempt >= 2:
+                # ✅ If failed attempts reach 3, send alert and reset counter
+                if failed_attempt >= 3:
                     lcd.lcd_clear()
                     lcd.lcd_display_string("Too Many Attempts!", 1)
                     time.sleep(3)
                     failed_attempt = 0
-        elif key == "2":            
+
+        #Customer            
+        elif key == "2":
+            lcd.lcd_clear()
+            lcd.lcd_display_string("Enter Phone No:", 1)
+            
+            input_buffer = ""
+            awaiting_multi_digit_input = True
+            while not shared_keypad_queue.qsize():
+                lcd.lcd_display_string(f"{input_buffer[:16]}{' ' * (16 - len(input_buffer))}", 2)
+                time.sleep(0.1)
+                
+            phone_number = shared_keypad_queue.get()
+            awaiting_multi_digit_input = False
+
+            user_id = get_user_id(phone_number)
+
+            if not user_id:
+                print("[ERROR] Invalid phone number. User not found.")
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Invalid Number", 1)
+                time.sleep(2)
+                continue  # Retry phone number entry
+
+            lcd.lcd_clear()
+            lcd.lcd_display_string("Welcome!", 1)
+            time.sleep(2)
+
             #Collect Drink or Order
             lcd.lcd_clear()
             lcd.lcd_display_string("1. Collect", 1)
@@ -414,7 +461,7 @@ def main():
                         buzzer.beep(0.1, 0.1, 1)
 
                         if confirm_key == "1":  # User confirms the order
-                            order_id = insert_order(item_id, "local")
+                            order_id = insert_order(item_id, user_id, "local")
                             lcd.lcd_clear()
                             lcd.lcd_display_string(f"Preparing #{item_id}", 1)
 
@@ -447,8 +494,6 @@ def main():
         else:
             continue
 
-
-    
 
 if __name__ == "__main__":
     main()

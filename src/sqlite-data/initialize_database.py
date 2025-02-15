@@ -104,11 +104,14 @@ def initialize_database():
     # Users table: stores customer information, including RFID card ID and available credit.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            name         TEXT NOT NULL,
-            rfid_card_id TEXT UNIQUE,
-            credit       REAL DEFAULT 100.0
-        );
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone_number TEXT UNIQUE NOT NULL,
+        chat_id TEXT UNIQUE NOT NULL,
+        rfid_card_id TEXT UNIQUE,
+        credit REAL DEFAULT 100.0
+    );
+
     """)
 
     # Admin users table: stores administrator credentials.
@@ -169,27 +172,55 @@ def initialize_database():
     CREATE TABLE IF NOT EXISTS orders (
         order_id INTEGER PRIMARY KEY AUTOINCREMENT,
         item_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,  -- Store user_id instead of phone_number
         source TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'Pending',
-        timestamp TEXT NOT NULL,  -- Store time as Singapore Time
+        timestamp TEXT NOT NULL,  
         transaction_id TEXT,
-        rfid_card_id   TEXT,
-        FOREIGN KEY (item_id) REFERENCES menu (id)
+        rfid_card_id TEXT,
+        FOREIGN KEY (item_id) REFERENCES menu (id),
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
     )
-    """)
+""")
+
 
     # Sales table: records individual sale items linked to orders.
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS sales (
-        sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    timestamp TEXT NOT NULL,  -- Store time as Singapore Time
+    price REAL NOT NULL,
+    source TEXT NOT NULL,  -- Local or Remote Order
+    payment_source TEXT,  -- NEW: Card, QR, RFID
+    FOREIGN KEY (item_id) REFERENCES menu (id),
+    FOREIGN KEY (order_id) REFERENCES orders (order_id)
+    );
+    """)
+    
+    # Create QR Transactions Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS qr_transactions (
+            transaction_id TEXT PRIMARY KEY,
+            order_id INTEGER NOT NULL,
+            phone_number TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Pending',
+            FOREIGN KEY (order_id) REFERENCES orders (order_id)
+        );
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS collection_qr_codes (
+        collection_id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id INTEGER NOT NULL,
-        item_id INTEGER NOT NULL,
-        timestamp TEXT NOT NULL,  -- Store time as Singapore Time
-        price REAL NOT NULL,
-        source TEXT NOT NULL,
-        FOREIGN KEY (item_id) REFERENCES menu (id),
-        FOREIGN KEY (order_id) REFERENCES orders (order_id)
-    )
+        phone_number TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        qr_code TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Pending', -- Pending | Collected
+        timestamp TEXT NOT NULL,  
+        FOREIGN KEY (order_id) REFERENCES orders(order_id)
+        );
     """)
 
     # Insert admin users with password '123456'
@@ -206,18 +237,6 @@ def initialize_database():
     """, admin_users)
     logger.info("Inserted (or ignored duplicates for) %d admin user(s).", len(admin_users))
     
-    # Populate users table using INSERT OR IGNORE
-    users = [
-        ("John Doe", "RFID123456", 100.0),
-        ("Jane Smith", "RFID654321", 100.0)
-    ]
-
-    cursor.executemany("""
-        INSERT OR IGNORE INTO users (name, rfid_card_id, credit)
-        VALUES (?, ?, ?)
-    """, users)
-    logger.info("Inserted (or ignored duplicates for) %d user(s).", len(users))
- 
     # Populate the menu table
     cursor.executemany("""
         INSERT INTO menu (name, category, price, availability, image)

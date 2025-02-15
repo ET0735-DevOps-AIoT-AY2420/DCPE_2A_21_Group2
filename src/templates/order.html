@@ -6,7 +6,6 @@
     <title>Order Drink</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        /* Reduce image size by 50% */
         .drink-image {
             width: 50%;
             height: auto;
@@ -21,25 +20,81 @@
         <h1>Order {{ drink["name"] }}</h1>
         <img class="drink-image" src="/static/images/{{ drink['image'] }}" alt="{{ drink['name'] }}">
         <p class="price">Price: ${{ drink["price"] }}</p>
-        <button onclick="confirmOrder({{ drink['id'] }}, '{{ drink['name'] }}', {{ drink['price'] }})">Order Now</button>
+        <button onclick="enterPhoneNumber({{ drink['id'] }}, '{{ drink['name'] }}', {{ drink['price'] }})">
+            Order Now
+        </button>
     </div>
 
     <script>
-        function confirmOrder(drinkId, drinkName, drinkPrice) {
-            let confirmAction = confirm(`Confirm order for ${drinkName} ($${drinkPrice.toFixed(2)})?`);
-            if (!confirmAction) return;
+        let userPhoneNumber = null;  // 🔹 Store phone number globally
 
-            fetch('/order', {
+        function enterPhoneNumber(drinkId, drinkName, drinkPrice) {
+            if (!userPhoneNumber) {  // ✅ Only prompt once
+                userPhoneNumber = prompt("Enter your phone number:");
+
+                if (!userPhoneNumber) {
+                    alert("Phone number is required.");
+                    userPhoneNumber = null;  // Reset if canceled
+                    return;
+                }
+            }
+
+            // ✅ Check if phone number exists in database
+            fetch('/check-phone-number', {
                 method: 'POST',
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ drink_id: drinkId })
+                body: JSON.stringify({ phone_number: userPhoneNumber })
             })
             .then(response => response.json())
             .then(data => {
-                alert(data.message);
-                window.location.href = "/";
+                if (data.exists) {
+                    placeOrder(drinkId);
+                } else {
+                    alert("❌ Phone number not found. Please enter a valid number.");
+                    userPhoneNumber = null;  // Reset phone number
+                }
             })
-            .catch(error => console.error("Order failed:", error));
+            .catch(error => console.error("Error verifying phone number:", error));
+        }
+
+        function placeOrder(drinkId) {
+            fetch("/order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ item_index: drinkId, phone_number: userPhoneNumber })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.order_id && data.item_index !== undefined) {
+                    processPayment(data.order_id, data.item_index);
+                } else {
+                    alert("❌ Order Error: " + data.error);
+                }
+            })
+            .catch(error => {
+                console.error("Error placing order:", error);
+                alert("❌ Could not place order.");
+            });
+        }
+
+        function processPayment(orderId, itemIndex) {
+            fetch("/create-checkout-session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ order_id: orderId, item_index: itemIndex })
+            })
+            .then(response => response.json())
+            .then(paymentData => {
+                if (paymentData.url) {
+                    window.location.href = paymentData.url;  // ✅ Redirect to payment
+                } else {
+                    alert("❌ Payment failed: " + paymentData.error);
+                }
+            })
+            .catch(error => {
+                console.error("Error in payment:", error);
+                alert("❌ Payment process failed.");
+            });
         }
     </script>
 </body>

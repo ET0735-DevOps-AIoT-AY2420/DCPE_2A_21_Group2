@@ -1,76 +1,52 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Login - Smart Vending Machine</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      background-color: #f4f4f4;
-    }
-    .login-container {
-      width: 300px;
-      margin: 100px auto;
-      padding: 20px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0px 0px 10px gray;
-    }
-    input {
-      width: 100%;
-      padding: 10px;
-      margin: 10px 0;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-    }
-    button {
-      width: 100%;
-      padding: 10px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #45a049;
-    }
-    .error {
-      color: red;
-      margin-top: 10px;
-    }
-    .success {
-      color: green;
-      margin-top: 10px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drink Menu</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="login-container">
-    <h2>Login</h2>
-    <form action="{{ url_for('login') }}" method="POST" onsubmit="console.log('Login form submitted');">
-      <div>
-        <label for="username">Username:</label>
-        <input type="text" id="username" name="username" required autofocus placeholder="Enter username">
-      </div>
-      <div>
-        <label for="password">Password:</label>
-        <input type="password" id="password" name="password" required placeholder="Enter password">
-      </div>
-      <div>
-        <button type="submit">Login</button>
-      </div>
-    </form>
+    <div class="container">
+        <h1>Drink Menu</h1>
+        <div id="status-message"></div>
+        <div class="grid" id="menu">
+            <p>Loading drinks...</p>
+        </div>
+    </div>
 
-    <!-- Display flash messages for errors or successes -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <p class="{{ category }}">{{ message }}</p>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-  </div>
+    <script>
+        async function fetchMenu() {
+            try {
+                const response = await fetch('/menu');
+                if (!response.ok) throw new Error("Failed to load menu");
+
+                const menu = await response.json();
+                let menuHTML = "";
+
+                menu.forEach(drink => {
+                    let imgSrc = drink.image ? `/static/images/${drink.image}` : '/static/images/default.png';
+                    let itemClass = drink.available ? "card" : "card out-of-stock";
+                    let clickAction = drink.available ? `onclick="window.location.href='/order/${drink.id}'"` : "";
+
+                    menuHTML += `
+                        <div class="${itemClass}" ${clickAction}>
+                            <img src="${imgSrc}" alt="${drink.name}">
+                            <h3>${drink.name}</h3>
+                            <p class="price">$${drink.price.toFixed(2)}</p>
+                            ${drink.available ? "" : "<p class='stock-status'>Out of Stock</p>"}
+                        </div>
+                    `;
+                });
+
+                document.getElementById("menu").innerHTML = menuHTML;
+            } catch (error) {
+                document.getElementById("menu").innerHTML = "<p>Error loading menu. Please try again later.</p>";
+                console.error("Menu fetch failed:", error);
+            }
+        }
+
+        fetchMenu();
+    </script>
 </body>
 </html>
