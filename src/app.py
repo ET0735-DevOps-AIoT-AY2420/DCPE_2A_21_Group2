@@ -30,9 +30,6 @@ from hal import hal_lcd as LCD
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Import RFID functions from rfid_payment.py
-from rfid_payment import simulate_rfid_payment, record_rfid_transaction
-
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "b9faabf6d98e5b9bfc6ccf8f592406c7"  # For testing purposes
 
@@ -220,7 +217,7 @@ def place_order():
         cursor.execute("""
             INSERT INTO orders (item_id, user_id, source, status, timestamp, payment_source)
             VALUES (?, ?, 'remote', 'Pending', ?, "card")
-        """, (item_index + 1, user_id, current_timestamp))
+        """, (item_index, user_id, current_timestamp))
         order_id = cursor.lastrowid
 
         conn.commit()

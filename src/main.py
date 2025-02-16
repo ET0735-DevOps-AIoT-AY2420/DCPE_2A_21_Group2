@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from threading import Thread
 from picamera2 import Picamera2
+from picamera2.encoders import H264Encoder
 from pyzbar.pyzbar import decode
 import qrcode
 import queue
@@ -11,11 +12,13 @@ import pytz
 import sqlite3
 import prepare
 import requests
+import threading
 
 # Importing hardware abstraction libraries (HALs)
 from hal import hal_led as led
 from hal import hal_lcd as LCD
 from hal import hal_adc as adc
+from hal import hal_accelerometer as accel
 from hal import hal_buzzer as buzzer
 from hal import hal_keypad as keypad
 from hal import hal_moisture_sensor as moisture_sensor
@@ -27,12 +30,22 @@ from hal import hal_temp_humidity_sensor as temp_humid_sensor
 from hal import hal_usonic as usonic
 from hal import hal_dc_motor as dc_motor
 from hal import hal_accelerometer as accel
+from telegram import Bot
+
+IMAGE_FOLDER = "qrcodes"
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
+
+VIDEO_FOLDER = "videos"
+os.makedirs(VIDEO_FOLDER, exist_ok=True) 
 
 # Queue for storing keypad inputs
 shared_keypad_queue = queue.Queue()
 
 # Database file location
 DB_FILE = os.getenv("DB_PATH", "/data/vending_machine.db")
+
+#flag to track security status
+intrusion_detected = False
 
 # Define QR Code Save Directory
 QR_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodes")
@@ -41,6 +54,13 @@ os.makedirs(QR_FOLDER, exist_ok=True)  # Ensure directory exists
 # Define Singapore Time Zone
 SGT = pytz.timezone('Asia/Singapore')
 
+#encoder for video taken
+encoder = H264Encoder(bitrate=10000000)
+
+#setting latest_video_path as none
+
+latest_video_path = None
+
 # Function to Get Current Time in Singapore Time
 def get_sg_time():
     return datetime.now(SGT).strftime('%Y-%m-%d %H:%M:%S')
@@ -48,11 +68,19 @@ def get_sg_time():
 # Correct 4-digit passcode
 CORRECT_PASSCODE = "1234"
 
+#for admin
+BOT_TOKEN = "7722732406:AAFEAXz_RTJNRAnE9aRnOVtlN18G7V-0wWU"
+TELEGRAM_CHAT_ID = 1498916836  
+
+# for user
 TELEGRAM_BOT_TOKEN = "7722732406:AAFEAXz_RTJNRAnE9aRnOVtlN18G7V-0wWU"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-#bot = Bot(token=TELEGRAM_BOT_TOKEN)
+bot = Bot(token="7722732406:AAFEAXz_RTJNRAnE9aRnOVtlN18G7V-0wWU")
 
-def generate_and_send_qr(user_id, phone_number, chat_id, order_id, QR_FOLDER):
+#for admin
+admin_log_in = False
+
+'''def generate_and_send_qr(user_id, phone_number, chat_id, order_id, QR_FOLDER):
     """
     Generates a QR code for payment and sends it to the user via Telegram.
     Returns the filename of the QR code.
@@ -74,61 +102,11 @@ def generate_and_send_qr(user_id, phone_number, chat_id, order_id, QR_FOLDER):
         else:
             print("[ERROR] Failed to send QR Code to Telegram.")
 
-    return qr_data
+    return qr_data'''
 
 def is_camera_in_use():
     """Check if another process is using the camera."""
     return "picamera2" in os.popen("ps aux | grep picamera2 | grep -v grep").read()
-
-def scan_qr(scan_time=30):
-    """
-    Scan QR code using Raspberry Pi camera.
-    Stops when a QR code is detected or after scan_time seconds.
-    """
-    if is_camera_in_use():
-        print("[ERROR] Camera is already in use by another process.")
-        return None
-
-    picam2 = Picamera2()
-    video_config = picam2.create_video_configuration(main={"size": (640, 480)})
-    picam2.configure(video_config)
-
-    scanning = True
-    start_time = time.time()
-
-    picam2.start()
-    print("[INFO] QR Scanner started...")
-
-    detected_qr = None  # Store detected QR
-
-    while scanning:
-        frame = picam2.capture_array()
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        codes = decode(gray)
-
-        for code in codes:
-            detected_qr = code.data.decode("utf-8")
-            print(f"✅ QR Code Detected: {detected_qr}")
-            scanning = False  # Stop loop
-
-        # Show the camera feed
-        cv2.imshow("QR Code Scanner", frame)
-
-        # Stop scanning if time limit is exceeded
-        if time.time() - start_time > scan_time:
-            print("[WARNING] Scanning timed out.")
-            break
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to manually stop
-            print("[INFO] Scan manually stopped.")
-            break
-
-    # ✅ Ensure proper cleanup
-    picam2.stop()
-    picam2.close()
-    cv2.destroyAllWindows()
-
-    return detected_qr  # ✅ Return scanned QR code (or None if failed)
 
 #function to check inventory before confirming order
 def check_inventory_status(drink_id):
@@ -187,6 +165,177 @@ def check_inventory_status(drink_id):
 # Buffer for handling multi-digit keypad inputs
 input_buffer = ""
 awaiting_multi_digit_input = False
+
+
+def scan_qr(scan_time=20):
+    """Scans a QR code and checks the database."""
+    if is_camera_in_use():
+        print("Camera is already in use by another process.")
+        return False
+
+    picam2 = Picamera2()
+    video_config = picam2.create_video_configuration(main={"size": (640, 480)})
+    picam2.configure(video_config)
+
+    scanning = True
+    qr_detected = False
+    start_time = time.time()
+
+    picam2.start()
+    print("QR Scanner started...")
+
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    while scanning:
+        frame = picam2.capture_array()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        codes = decode(gray)
+
+        for code in codes:
+            qr_data = code.data.decode("utf-8")
+            print(f"QR Code Detected: {qr_data}")
+
+            scanning = False
+            picam2.stop()
+            picam2.close()
+            cv2.destroyAllWindows()
+            return qr_data
+            
+            cursor.execute("SELECT order_id FROM collection_qr_codes WHERE qr_code=? AND status='Pending'", (qr_data,))
+            result = cursor.fetchone()            
+            '''if result:
+                cursor.execute("DELETE FROM TemporaryQR WHERE key_id=?", (qr_data,))
+                conn.commit()
+                os.remove(f"src/static/qrcodes/{qr_data}.png")
+                scanning = False
+                qr_detected = True
+                break'''
+            print(f"✅ QR Code Detected: {qr_data}")
+
+        
+
+        cv2.imshow("QR Code Scanner", frame)
+
+        if time.time() - start_time > scan_time:
+            print("Scanning time exceeded.")
+            scanning = False
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            scanning = False
+
+    picam2.stop()
+    picam2.close()
+    cv2.destroyAllWindows()
+
+    return None
+
+def send_telegram_video(video_path):
+    """Sends the recorded video via Telegram Bot."""
+    print(f"Sending video: {video_path}")
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+    
+    with open(video_path, "rb") as video_file:
+        response = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID}, files={"video": video_file})
+    
+    if response.status_code == 200:
+        print("Video sent successfully.")
+    else:
+        print(f"Failed to send video: {response.text}")
+
+def record_and_send_video():
+      
+    if is_camera_in_use():
+        print("Camera is already in use by another process.")
+        picam2.close()
+        picam2.stop()
+        return
+
+    picam2 = Picamera2()
+    video_config = picam2.create_video_configuration(main={"size": (640, 480)})
+    picam2.configure(video_config)
+    encoder = H264Encoder(bitrate=5000000)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    h264_path = os.path.join(VIDEO_FOLDER, f"video_{timestamp}.h264")
+    mp4_path = os.path.join(VIDEO_FOLDER, f"video_{timestamp}.mp4")
+
+    try:
+        print(f"Recording video: {h264_path}")
+        picam2.start_recording(encoder, h264_path)
+        time.sleep(10)
+        picam2.stop_recording()
+        print("Recording complete.")
+
+        print("Converting video to MP4...")
+        convert_command = f"ffmpeg -i {h264_path} -c copy {mp4_path} -y"
+        result = os.system(convert_command)
+
+        if result == 0 and os.path.exists(mp4_path):
+            print("Conversion successful.")
+            os.remove(h264_path)  # ✅ Delete the .h264 file after conversion
+            send_telegram_video(mp4_path)
+        else:
+            print("Error: Video conversion failed.")
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+    finally:
+        picam2.close()
+        picam2.stop()
+
+        #if cannot run anymore pls use below function ^,^
+'''def record_and_send_video():
+    
+    if is_camera_in_use():
+        print("Camera is already in use by another process.")
+        return
+
+    picam2 = Picamera2()
+    video_config = picam2.create_video_configuration(main={"size": (640, 480)})
+    picam2.configure(video_config)
+    encoder = H264Encoder(bitrate=5000000)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    output = os.path.join(VIDEO_FOLDER, f"video_{timestamp}.h264")
+    mp4_path = output.replace(".h264", ".mp4")
+
+    try:
+        print(f"Recording video: {output}")
+        picam2.start_recording(encoder, output)
+        time.sleep(10)
+        picam2.stop_recording()
+        print("Recording complete.")
+
+        print("Converting video to MP4...")
+        os.system(f"ffmpeg -i {output} -c copy {mp4_path} -y")
+        print("Conversion complete.")
+
+        send_telegram_video(mp4_path)
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+    finally:
+        picam2.close()
+        picam2.stop()'''
+
+
+def send_telegram_photo(image_path, caption):
+    """Sends a photo to Telegram."""
+    with open(image_path, "rb") as photo:
+        response = requests.post(
+            TELEGRAM_API_URL,
+            data={"chat_id": "5819192033", "caption": caption},
+            files={"photo": photo}
+        )
+    
+    if response.status_code == 200:
+        print("[INFO] QR Code image sent to Telegram successfully.")
+    else:
+        print(f"[ERROR] Failed to send image to Telegram: {response.text}")
 
 # Callback function for handling keypress events from the keypad
 def key_pressed(key):
@@ -314,7 +463,12 @@ def fetch_next_order():
         print(f"[ERROR] fetch_next_order failed: {e}")
         return None
 
-
+def send_telegram_message(message):
+    try:
+        bot.send_message(chat_id=5819192033, text=message)
+        print(f"Telegram message sent: {message}")
+    except Exception as e:
+        print(f"Error sending Telegram message: {e}")
 
 # Generate initials for drink names
 def get_initials(name):
@@ -356,12 +510,58 @@ def get_user_id(phone_number):
     conn.close()
     return user[0] if user else None  # Return user_id if found, else None
 
+def monitor_security():
+    """
+    Background thread to monitor ultrasonic sensor.
+    Sends an alert immediately if the distance is less than 5 cm.
+    """
+    global intrusion_detected
+    
+    usonic.init()
+    ir_sensor.init()
+    acc = accel.init()  # Initialize accelerometer
+    buzzer.init()
+
+    intrusion_start_time = None
+
+    last_x, last_y, last_z = acc.get_3_axis()  # Get initial accelerometer readings
+
+    while True:
+        distance = usonic.get_distance()
+        current_x, current_y, current_z = acc.get_3_axis()
+        if distance < 5 and ir_sensor.get_ir_sensor_state(): 
+            if not admin_log_in: # Object too close + IR triggered
+                if not intrusion_detected:  # Prevent multiple alerts
+                    print("[SECURITY] Intrusion detected! Sending alert...")
+                    send_telegram_message(" Alert: Someone is holding the door!")
+                    buzzer.beep(0.2, 0.3, 5)
+                    intrusion_detected = True  
+            else: 
+                    intrusion_detected = False
+        elif abs(current_x - last_x) > 0.07 or abs(current_y - last_y) > 0.07 or abs(current_z - last_z) > 0.07:
+            if not admin_log_in:  # Prevent multiple alerts
+                if not intrusion_detected:
+                    print("[SECURITY] Machine movement detected! Possible tampering!")
+                    send_telegram_message(" Alert: Machine movement detected! Possible tampering!")
+                    buzzer.beep(0.3, 0.2, 2)
+                    intrusion_detected = True
+            else:
+                    intrusion_detected = False
+        else:
+            intrusion_detected = False  # Reset if object moves away
+
+        last_x, last_y, last_z = current_x, current_y, current_z
+
+        time.sleep(0.5)  # Small delay to optimize CPU usage
+
+
 def main():
     """
     Main function to handle the vending machine's operations.
     """
     global input_buffer, awaiting_multi_digit_input
-    global failed_attempt, rfid_pay
+    global failed_attempt, rfid_pay, qr_pay
+    global admin_log_in
 
     # Initialize hardware modules
     led.init()
@@ -382,6 +582,11 @@ def main():
     keypad_thread = Thread(target=keypad.get_key)
     keypad_thread.start()
     failed_attempt = 0
+    admin_log_in=False
+
+    security_thread = threading.Thread(target=monitor_security)
+    security_thread.daemon = True
+    security_thread.start()
 
     # Initialize LCD display
     lcd = LCD.lcd()
@@ -392,6 +597,9 @@ def main():
     time.sleep(3)
 
     while True:
+        if intrusion_detected:
+            time.sleep(5)  # Allow time before retrying
+            continue
         # Continuously check and process any pending orders first (Remote or Local)
         while True:
             next_order = fetch_next_order()
@@ -438,7 +646,31 @@ def main():
                 failed_attempt = 0  #Reset failed attempts on success
                 lcd.lcd_clear() 
                 lcd.lcd_display_string("Access Granted", 1)
+                send_telegram_message("Admin has logged in")
+                admin_log_in = True
+                servo.set_servo_position(0)
                 time.sleep(2)
+                servo.set_servo_position(180)
+                time.sleep(2)
+                lcd.lcd_clear()
+                lcd.lcd_display_string("Enter Passcode", 1)
+                while not shared_keypad_queue.qsize():
+                    lcd.lcd_display_string(f"{'*' * len(input_buffer):16}", 2)
+                    time.sleep(0.1)
+                    
+                passcode = shared_keypad_queue.get()            
+                if passcode == CORRECT_PASSCODE:
+                    lcd.lcd_clear()
+                    lcd.lcd_display_string("successfully log out", 1)
+                    send_telegram_message("Admin has logged out")
+                    time.sleep(2)
+                    servo.set_servo_position(0)
+                    time.sleep(2)
+                    servo.set_servo_position(180)
+                    time.sleep(2)
+                    servo.set_servo_position(0)
+                    time.sleep(0)
+                    admin_log_in=False
             else:
                 failed_attempt += 1  #Increment failed attempts
                 lcd.lcd_clear()
@@ -446,12 +678,14 @@ def main():
                 buzzer.beep(0.5, 0.5, 2)
                 time.sleep(2)
                 # ✅ If failed attempts reach 3, send alert and reset counter
-                if failed_attempt >= 3:
+                if failed_attempt >= 2:
                     lcd.lcd_clear()
                     lcd.lcd_display_string("Too Many Attempts!", 1)
                     time.sleep(3)
+                    record_and_send_video()
+                    time.sleep(1)
                     failed_attempt = 0
-
+           
         #Customer            
         elif key == "2":
             lcd.lcd_clear()
@@ -489,8 +723,37 @@ def main():
 
             if select_mode_key == "1":
                 lcd.lcd_clear()
-                lcd.lcd_display_string("Coming soon")
+                lcd.lcd_display_string("Scan your", 1)
+                lcd.lcd_display_string("QR code", 2)
                 time.sleep(2)
+
+                # ✅ Fetch user details from DB
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("SELECT phone_number, chat_id, credit FROM users WHERE user_id = ?", (user_id,))
+                qr_data = cursor.fetchone()
+                conn.close()
+                
+                # ✅ Open Camera for Scanning
+                scanned_qr = scan_qr(30)
+                print(f"[DEBUG] Im inside main Scanned QR Output: {scanned_qr}")
+
+                # ✅ Validate scanned QR
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("SELECT order_id FROM collection_qr_codes WHERE qr_code=? AND status='Pending'", (scanned_qr,))
+                cursor.execute("SELECT rfid_card_id, credit FROM users WHERE user_id = ?", (user_id,))
+                result = cursor.fetchone()
+                conn.commit()
+                conn.close()
+                
+                if result:
+                    servo.set_servo_position(90)
+                    time.sleep(2)
+                    servo.set_servo_position(0)                 
+                else:
+                    break    
+                                                
             elif select_mode_key == "2":
                 # Now, wait for a local order, but continue checking for remote orders
                 lcd.lcd_clear()
@@ -560,8 +823,10 @@ def main():
                             lcd.lcd_display_string("1. RFID", 1)
                             lcd.lcd_display_string("2. QR", 2)
                             payment_key = shared_keypad_queue.get()
+                            
                             if payment_key == "1":  # ✅ User selects RFID payment
                                 rfid_pay = True
+                                qr_pay = False
                                 lcd.lcd_clear()
                                 lcd.lcd_display_string("Scan RFID Card", 1)
                         
@@ -569,19 +834,25 @@ def main():
                                 conn = sqlite3.connect(DB_FILE)
                                 cursor = conn.cursor()
                                 cursor.execute("SELECT rfid_card_id, credit FROM users WHERE user_id = ?", (user_id,))
-                                user = cursor.fetchone()
+                                #user = cursor.fetchone()
+                                rfid_data  = cursor.fetchone()
                                 conn.close()
 
-                                if not user:
+                                if not rfid_data or not rfid_data[0] :
                                     lcd.lcd_clear()
                                     lcd.lcd_display_string("No RFID Linked", 1)
                                     lcd.lcd_display_string("Use QR Instead", 2)
                                     time.sleep(2)
-                                    continue
+                                    continue  # Go back to payment selection
+
+                                user_rfid, user_credit = rfid_data  # ✅ Safe unpacking
+                                
+                              
+
                                 paid = False
                                 start_time = time.time()  # Get the start time
                                 while time.time() - start_time < 10:  # Run for 10 seconds
-                                    user_rfid, user_credit = user
+                                    user_rfid, user_credit = rfid_data
                                     # ✅ Wait for user to scan their RFID card
                                     scanned_rfid = reader.read_id_no_block()
                                     scanned_rfid = str(scanned_rfid)                                                   
@@ -601,6 +872,8 @@ def main():
 
                             #QR payment             
                             elif payment_key == "2":
+                                rfid_pay = False
+                                qr_pay = True
                                 lcd.lcd_clear()
                                 lcd.lcd_display_string("Generating QR", 1)
                                 time.sleep(2)
@@ -608,37 +881,73 @@ def main():
                                 # ✅ Fetch user details from DB
                                 conn = sqlite3.connect(DB_FILE)
                                 cursor = conn.cursor()
-                                cursor.execute("SELECT phone_number, chat_id FROM users WHERE user_id = ?", (user_id,))
-                                user = cursor.fetchone()
+                                cursor.execute("SELECT phone_number, chat_id, credit FROM users WHERE user_id = ?", (user_id,))
+                                qr_data = cursor.fetchone()
                                 conn.close()
-                                if not user:
-                                    lcd.lcd_clear()
+
+                                if not qr_data or not qr_data[0]:
+                                    lcd.lcd_clear() 
                                     lcd.lcd_display_string("User Not Found", 1)
                                     time.sleep(2)
-                                else:
-                                    phone_number, chat_id = user
-                                    # ✅ Generate and Send QR
-                                    qr_data = generate_and_send_qr(user_id, phone_number, chat_id, order_id, QR_FOLDER)
+                                    continue  # Go back to payment selection                                
+                                                                
+                                phone_number, chat_id, user_credit = qr_data
 
-                                    lcd.lcd_clear()
-                                    lcd.lcd_display_string("Scan QR to Pay", 1)
-                                    lcd.lcd_display_string("Opening Camera", 2)
-                                    time.sleep(2)
-                                    # ✅ Open Camera for Scanning
-                                    scanned_qr = scan_qr(30)
-                                    if scanned_qr == qr_data:
-                                        lcd.lcd_clear()
-                                        lcd.lcd_display_string("Payment Success", 1)
-                                        lcd.lcd_display_string("Enjoy Your Drink", 2)
-                                        time.sleep(2)
+                                # ✅ Generate QR Code for this transaction
+                                qr_data = f"ORDER_{order_id}_{phone_number}"
+                                qr_filename = os.path.join(QR_FOLDER, f"qr_{order_id}.png")
+
+                                qr = qrcode.make(qr_data)
+                                qr.save(qr_filename)
+
+                                # ✅ Insert QR Code into TemporaryQR table
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    INSERT INTO collection_qr_codes (order_id, phone_number, chat_id, qr_code, status, timestamp)
+                                    VALUES (?, ?, ?, ?, 'Pending', ?)
+                                """, (order_id, phone_number, chat_id, qr_data, get_sg_time()))
+                                conn.commit()
+                                conn.close()
+
+                                # ✅ Send QR image to Telegram
+                                with open(qr_filename, "rb") as qr_file:
+                                    files = {"photo": qr_file}
+                                    data = {"chat_id": chat_id, "caption": "Scan this QR code to complete payment."}
+                                    response = requests.post(TELEGRAM_API_URL, data=data, files=files)
+
+                                lcd.lcd_clear()
+                                lcd.lcd_display_string("Scan QR to Pay", 1)
+                                lcd.lcd_display_string("Opening Camera", 2)
+                                time.sleep(2)
+
+                                # ✅ Open Camera for Scanning
+                                scanned_qr = scan_qr(30)
+                                print(f"[DEBUG] Scanned QR Output: {scanned_qr}")
+
+                                # ✅ Validate scanned QR
+                                conn = sqlite3.connect(DB_FILE)
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT order_id FROM collection_qr_codes WHERE qr_code=? AND status='Pending'", (scanned_qr,))
+                                cursor.execute("SELECT rfid_card_id, credit FROM users WHERE user_id = ?", (user_id,))
+                                result = cursor.fetchone()
+                                conn.commit()
+                                conn.close()
+                                paid = False
+
+                                if result:
+                                    paid = True
+                                  
+                                else:                                    
+                                    paid = False
 
                             conn = sqlite3.connect(DB_FILE)
                             cursor = conn.cursor()
                             # ✅ Check if the user has enough balance
                             cursor.execute("SELECT price FROM menu WHERE id = ?", (item_id,))
                             item_price = cursor.fetchone()
-                        
-                            if item_price is None or user_credit < item_price[0 ]:  # ✅ Use index instead of dictionary access
+                            
+                            if item_price is None or user_credit < item_price[0]:  # ✅ Use index instead of dictionary access
                                 lcd.lcd_clear()
                                 lcd.lcd_display_string("Insufficient", 1)
                                 lcd.lcd_display_string("Balance!", 2)
@@ -649,8 +958,7 @@ def main():
                                 continue  # Restart payment process
                             conn.commit()
                             conn.close()
-                        
-                        
+                                               
                             if (paid):
                                 conn = sqlite3.connect(DB_FILE)
                                 cursor = conn.cursor()    
@@ -670,7 +978,10 @@ def main():
                                     cursor.execute("""
                                     INSERT INTO sales (order_id, item_id, timestamp, price, source, payment_source)
                                     VALUES (?, ?, ?, ?, 'local', 'QR')
-                                    """, (order_id, item_id, get_sg_time(), item_price[0]))                        
+                                    """, (order_id, item_id, get_sg_time(), item_price[0]))
+                                
+                                rfid_pay = False
+                                qr_pay = False
                                 conn.commit()
                                 conn.close()  # ✅ Ensure connection is only closed at the end
                                 lcd.lcd_clear()

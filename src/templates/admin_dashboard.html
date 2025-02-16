@@ -23,44 +23,57 @@
     <div class="main-content">
         <h1>Admin Dashboard</h1>
 
-        <!-- Pending Orders -->
-        <h2>Pending Orders</h2>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Order ID</th>
-                    <th>Drink ID</th>
-                    <th>Drink Name</th>
-                    <th>Quantity</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for order in pending_orders %}
-                <tr>
-                    <td>{{ order[0] }}</td>  <!-- Order ID -->
-                    <td>{{ order[1] }}</td>  <!-- Drink ID -->
-                    <td>{{ order[2] }}</td>  <!-- Drink Name -->
-                    <td>1</td>  <!-- Default quantity (if quantity isn't stored in DB) -->
-                    <td>{{ order[3] }}</td>  <!-- Status -->
-                </tr>                
-                {% endfor %}
-            </tbody>
-        </table>
-
         <!-- Sales Filter -->
         <div class="filter-sales">
             <form method="POST" action="{{ url_for('admin_dashboard') }}">
                 <label for="date_filter">Filter Sales:</label>
                 <select name="date_filter">
-                    <option value="all">All Time</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
+                    <option value="all" {% if selected_date_filter == 'all' %}selected{% endif %}>All Time</option>
+                    <option value="daily" {% if selected_date_filter == 'daily' %}selected{% endif %}>Daily</option>
+                    <option value="weekly" {% if selected_date_filter == 'weekly' %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if selected_date_filter == 'monthly' %}selected{% endif %}>Monthly</option>
                 </select>
-                <button type="submit"><i class="fa fa-filter"></i> Filter Sales</button>
+
+                <label for="source_filter">Filter Source:</label>
+                <select name="source_filter">
+                    <option value="all" {% if selected_source_filter == 'all' %}selected{% endif %}>All</option>
+                    <option value="local" {% if selected_source_filter == 'local' %}selected{% endif %}>Local</option>
+                    <option value="remote" {% if selected_source_filter == 'remote' %}selected{% endif %}>Remote</option>
+                </select>
+
+                <button type="submit"><i class="fa fa-filter"></i> Apply Filter</button>
             </form>
         </div>
+
+        <!-- Sales Transactions Table -->
+        <h2>Sales Transactions</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Sale ID</th>
+                    <th>Order ID</th>
+                    <th>Drink Name</th>
+                    <th>Timestamp</th>
+                    <th>Price ($)</th>
+                    <th>Source</th>
+                    <th>Payment Method</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sale in sales_data %}
+                <tr>
+                    <td>{{ sale[0] }}</td>  <!-- Sale ID -->
+                    <td>{{ sale[1] }}</td>  <!-- Order ID -->
+                    <td>{{ sale[2] }}</td>  <!-- Drink Name -->
+                    <td>{{ sale[3] }}</td>  <!-- Timestamp -->
+                    <td>${{ sale[4] }}</td>  <!-- Price -->
+                    <td>{{ sale[5] }}</td>  <!-- Source (Local/Remote) -->
+                    <td>{{ sale[6] }}</td>  <!-- Payment Method (QR, RFID, Card) -->
+                </tr>                
+                {% endfor %}
+            </tbody>
+        </table>
+
 
         <!-- Total Sales -->
         <h2>Total Sales: ${{ total_sales }}</h2>

@@ -82,6 +82,8 @@ MENU_INVENTORY_MAPPING = {
     "Lychee Strawberry Frost": ["milk", "lychee", "strawberry"]
 }
 
+
+
 # Function to establish a database connection
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
@@ -113,6 +115,15 @@ def initialize_database():
     );
 
     """)
+
+    #QR 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS TemporaryQR (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            key_id VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
 
     # Admin users table: stores administrator credentials.
     cursor.execute("""

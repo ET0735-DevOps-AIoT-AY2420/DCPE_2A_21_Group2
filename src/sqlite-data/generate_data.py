@@ -34,17 +34,26 @@ def generate_orders_and_sales():
         print("No menu items found in the database.")
         return
 
-    # Generate random source as either "local" or "remote"
-    for _ in range(100):  # Insert 100 random orders (can adjust this number)
+    # Get user IDs
+    cursor.execute("SELECT user_id FROM users")
+    user_ids = [row[0] for row in cursor.fetchall()]
+    if not user_ids:
+        print("No users found in the database.")
+        return
+
+    # Generate random orders and sales
+    for _ in range(100):  # Insert 100 random orders (adjust this number as needed)
         drink_id = random.choice(menu_items)[0]
+        user_id = random.choice(user_ids)
         order_timestamp = random_date_within_three_months()
         source = random.choice(["local", "remote"])  # Randomly choose 'local' or 'remote'
+        payment_source = random.choice(["Card", "QR", "RFID"])  # Randomly assign payment source
 
         # Insert into orders table
         cursor.execute("""
-            INSERT INTO orders (item_id, source, status, timestamp)
-            VALUES (?, ?, 'Completed', ?)
-        """, (drink_id, source, order_timestamp))
+            INSERT INTO orders (item_id, user_id, source, payment_source, status, timestamp)
+            VALUES (?, ?, ?, ?, 'Completed', ?)
+        """, (drink_id, user_id, source, payment_source, order_timestamp))
         order_id = cursor.lastrowid
 
         # Generate a sale based on this order
@@ -52,9 +61,9 @@ def generate_orders_and_sales():
         price = cursor.execute("SELECT price FROM menu WHERE id = ?", (drink_id,)).fetchone()[0]
 
         cursor.execute("""
-            INSERT INTO sales (order_id, item_id, timestamp, price, source)
-            VALUES (?, ?, ?, ?, ?)
-        """, (order_id, drink_id, sale_timestamp, price, source))
+            INSERT INTO sales (order_id, item_id, timestamp, price, source, payment_source)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (order_id, drink_id, sale_timestamp, price, source, payment_source))
 
     conn.commit()
     conn.close()
