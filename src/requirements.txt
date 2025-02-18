@@ -3,3 +3,16 @@ flask-cors
 flask-sqlalchemy
 python-dotenv
 pytz
+io
+os
+uuid
+stripe
+qrcode
+threading
+bcrypt
+logging
+datetime
+request
+redirect
+url_for
+jsonify

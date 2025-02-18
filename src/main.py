@@ -101,7 +101,6 @@ admin_log_in = False
             print("[INFO] QR Code sent to Telegram successfully.")
         else:
             print("[ERROR] Failed to send QR Code to Telegram.")
-
     return qr_data'''
 
 def is_camera_in_use():
