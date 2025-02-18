@@ -1,0 +1,26 @@
+# Use an ARM-compatible Python image for Raspberry Pi
+FROM arm32v7/python:3.9-slim
+
+# Set the working directory
+WORKDIR /app
+
+# Install required system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libsqlite3-dev zlib1g-dev libjpeg-dev libtiff-dev libfreetype6-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy only requirements.txt first (ensures dependencies install first)
+COPY requirements.txt /app/requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/requirements.txt
+
+# Now copy the rest of the application files
+COPY . /app
+
+# Expose Flask API port
+EXPOSE 5000
+
+# Start the application
+CMD ["python", "app.py"]

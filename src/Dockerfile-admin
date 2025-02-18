@@ -1,0 +1,20 @@
+# Use a lightweight Python image
+FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
+WORKDIR /admin
+
+# Copy the application code
+COPY . /admin
+
+# Install required dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Expose port for Flask admin panel
+EXPOSE 5002
+
+# Run the Flask admin app
+CMD ["python", "admin.py"]

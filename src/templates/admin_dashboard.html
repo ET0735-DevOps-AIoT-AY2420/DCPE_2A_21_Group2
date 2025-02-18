@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://kit.fontawesome.com/a076d05399.js"></script> <!-- For icons -->
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <div class="sidebar">
+        <h2>Admin Panel</h2>
+        <ul>
+            <li><a href="{{ url_for('admin_dashboard') }}"><i class="fa fa-home"></i> Dashboard</a></li>
+            <li><a href="{{ url_for('inventory_list') }}"><i class="fa fa-box"></i> Modify Inventory</a></li>
+            <li><a href="{{ url_for('admin_logs') }}"><i class="fa fa-history"></i> Admin Logs</a></li>
+            <li><a href="{{ url_for('logout') }}"><i class="fa fa-sign-out-alt"></i> Logout</a></li>
+        </ul>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <h1>Admin Dashboard</h1>
+
+        <!-- Sales Filter -->
+        <div class="filter-sales">
+            <form method="POST" action="{{ url_for('admin_dashboard') }}">
+                <label for="date_filter">Filter Sales:</label>
+                <select name="date_filter">
+                    <option value="all" {% if selected_date_filter == 'all' %}selected{% endif %}>All Time</option>
+                    <option value="daily" {% if selected_date_filter == 'daily' %}selected{% endif %}>Daily</option>
+                    <option value="weekly" {% if selected_date_filter == 'weekly' %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if selected_date_filter == 'monthly' %}selected{% endif %}>Monthly</option>
+                </select>
+
+                <label for="source_filter">Filter Source:</label>
+                <select name="source_filter">
+                    <option value="all" {% if selected_source_filter == 'all' %}selected{% endif %}>All</option>
+                    <option value="local" {% if selected_source_filter == 'local' %}selected{% endif %}>Local</option>
+                    <option value="remote" {% if selected_source_filter == 'remote' %}selected{% endif %}>Remote</option>
+                </select>
+
+                <button type="submit"><i class="fa fa-filter"></i> Apply Filter</button>
+            </form>
+        </div>
+
+        <!-- Sales Transactions Table -->
+        <h2>Sales Transactions</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Sale ID</th>
+                    <th>Order ID</th>
+                    <th>Drink Name</th>
+                    <th>Timestamp</th>
+                    <th>Price ($)</th>
+                    <th>Source</th>
+                    <th>Payment Method</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sale in sales_data %}
+                <tr>
+                    <td>{{ sale[0] }}</td>  <!-- Sale ID -->
+                    <td>{{ sale[1] }}</td>  <!-- Order ID -->
+                    <td>{{ sale[2] }}</td>  <!-- Drink Name -->
+                    <td>{{ sale[3] }}</td>  <!-- Timestamp -->
+                    <td>${{ sale[4] }}</td>  <!-- Price -->
+                    <td>{{ sale[5] }}</td>  <!-- Source (Local/Remote) -->
+                    <td>{{ sale[6] }}</td>  <!-- Payment Method (QR, RFID, Card) -->
+                </tr>                
+                {% endfor %}
+            </tbody>
+        </table>
+
+
+        <!-- Total Sales -->
+        <h2>Total Sales: ${{ total_sales }}</h2>
+
+        <!-- Inventory Table -->
+        <h2>Inventory</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Inventory Name</th>
+                    <th>Amount Remaining</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in inventory %}
+                    <tr>
+                        <td>{{ item[0] }}</td>
+                        <td>{{ item[1] }} remaining</td>
+                        <td><a href="{{ url_for('modify_inventory', inventory_name=item[0]) }}"><i class="fa fa-edit"></i> Modify</a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+    </div>
+</body>
+</html>

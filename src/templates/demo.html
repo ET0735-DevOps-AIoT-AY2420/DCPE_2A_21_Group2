@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Vending Machine - Payment</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+    }
+    .container {
+      width: 400px;
+      margin: auto;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0px 0px 10px gray;
+      margin-top: 100px;
+    }
+    select, button {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      font-size: 16px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #message {
+      font-weight: bold;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Proceed to Payment</h1>
+    <p id="order-details"></p>
+    <button id="checkout-button">Pay with Card</button>
+    <button id="qr-button">Pay with QR</button>
+    <p id="message"></p>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    // Ensure DOM is fully loaded before running script
+    document.addEventListener("DOMContentLoaded", function () {
+        const checkoutButton = document.getElementById('checkout-button');
+        const qrButton = document.getElementById('qr-button');
+        const messageDisplay = document.getElementById('message');
+
+        // Get order_id & item_index from Flask (Jinja)
+        const orderId = "{{ order_id }}";
+        const itemIndex = "{{ item_index }}";
+
+        if (!orderId || !itemIndex) {
+            console.error("Error: order_id or item_index missing!");
+            messageDisplay.textContent = "❌ Error: Order details missing!";
+            return;
+        }
+
+        console.log("✅ Order ID:", orderId);
+        console.log("✅ Item Index:", itemIndex);
+
+        // Ensure buttons exist before adding event listeners
+        if (checkoutButton) {
+            checkoutButton.addEventListener('click', () => processCardPayment(orderId, itemIndex));
+        }
+        if (qrButton) {
+            qrButton.addEventListener('click', () => processQRPayment(orderId, itemIndex));
+        }
+
+        // Function to Process Card Payment
+        function processCardPayment(orderId, itemIndex) {
+            messageDisplay.textContent = "Processing card payment...";
+            fetch('/create-checkout-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item_index: itemIndex, order_id: orderId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.url) {
+                    window.location.href = data.url; // Redirect to Stripe checkout
+                } else {
+                    messageDisplay.textContent = "❌ Payment failed: " + data.error;
+                    messageDisplay.style.color = "red";
+                }
+            })
+            .catch(err => {
+                messageDisplay.textContent = "❌ Error processing payment.";
+                messageDisplay.style.color = "red";
+                console.error('Error processing payment:', err);
+            });
+        }
+
+        // Function to Process QR Payment
+        function processQRPayment(orderId, itemIndex) {
+            let phoneNumber = prompt("Enter your phone number:");
+            if (!phoneNumber) {
+                alert("Phone number is required for QR payment.");
+                return;
+            }
+            console.log("📌 Sending order ID:", orderId);
+
+
+            fetch('/qr-pay', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item_index: itemIndex, order_id: orderId, phone_number: phoneNumber })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.transaction_id) {
+                    console.log("Transaction ID:", data.transaction_id);
+                    pollForPayment(data.transaction_id);
+                } else {
+                    alert("QR Payment Error: " + data.error);
+                }
+            })
+            .catch(err => {
+                console.error("QR Payment request failed:", err);
+                alert("❌ Error processing QR payment.");
+            });
+        }
+
+        // Polling function for QR Payment Status
+        function pollForPayment(transactionId) {
+            fetch(`/payment-status?transaction_id=${transactionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'Paid') {
+                        window.location.href = data.redirect;
+                    } else {
+                        setTimeout(() => pollForPayment(transactionId), 5000);
+                    }
+                })
+                .catch(err => {
+                    console.error("Error checking payment status:", err);
+                });
+        }
+    });
+</script>
+
+</body>
+</html>

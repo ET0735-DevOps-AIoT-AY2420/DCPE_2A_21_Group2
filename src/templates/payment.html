@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Vending Machine - Payment</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+    }
+    .container {
+      width: 400px;
+      margin: auto;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0px 0px 10px gray;
+      margin-top: 100px;
+    }
+    #message {
+      font-weight: bold;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Processing Payment...</h1>
+    <p id="message">Please wait, redirecting to payment...</p>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const orderId = "{{ order_id }}";
+        const itemIndex = "{{ item_index }}";
+
+        if (!orderId || !itemIndex) {
+            console.error("Error: order_id or item_index missing!");
+            document.getElementById("message").textContent = "❌ Error: Order details missing!";
+            return;
+        }
+
+        // Auto-redirect to Stripe payment
+        fetch('/create-checkout-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_index: itemIndex, order_id: orderId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.url) {
+                window.location.href = data.url; // Redirect to Stripe checkout
+            } else {
+                document.getElementById("message").textContent = "❌ Payment failed: " + data.error;
+            }
+        })
+        .catch(err => {
+            document.getElementById("message").textContent = "❌ Error processing payment.";
+            console.error('Error processing payment:', err);
+        });
+    });
+  </script>
+</body>
+</html>

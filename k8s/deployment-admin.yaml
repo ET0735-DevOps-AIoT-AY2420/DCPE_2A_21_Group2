@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vending-admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vending-admin
+  template:
+    metadata:
+      labels:
+        app: vending-admin
+    spec:
+      containers:
+        - name: vending-admin
+          image: kinda1vin/vending-admin
+          ports:
+            - containerPort: 5002
+          env:
+            - name: DB_PATH
+              value: "/data/vending_machine.db"
+          volumeMounts:
+            - mountPath: "/data"
+              name: vending-db-storage
+      volumes:
+        - name: vending-db-storage
+          persistentVolumeClaim:
+            claimName: vending-pvc

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>QR Scan - Smart Vending Machine</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
+    #video-container { display: inline-block; border: 2px solid #333; margin-top: 20px; }
+    #timer { font-size: 24px; font-weight: bold; margin-top: 10px; }
+    #status { margin-top: 10px; font-size: 20px; color: green; }
+  </style>
+</head>
+<body>
+  <h1>Scan Your QR Code</h1>
+  <div id="video-container">
+    <img src="{{ url_for('video_feed') }}" alt="Live Camera Feed" width="640" height="480">
+  </div>
+  <div id="timer">60</div>
+  <div id="status">Scanning for QR code...</div>
+  
+  <script>
+    let timeLeft = 60;
+    const timerElem = document.getElementById('timer');
+    const statusElem = document.getElementById('status');
+    const transactionId = "{{ transaction_id }}";
+    
+    // Countdown timer
+    const countdown = setInterval(() => {
+      if(timeLeft <= 0) {
+        clearInterval(countdown);
+        statusElem.textContent = "QR code not detected. Please try again.";
+      } else {
+        timerElem.textContent = timeLeft;
+        timeLeft--;
+      }
+    }, 1000);
+    
+    // Poll the payment status endpoint every 2 seconds
+    function pollStatus() {
+      fetch(`/payment-status?transaction_id=${transactionId}`)
+        .then(response => response.json())
+        .then(data => {
+          if(data.status && data.status === "Paid") {
+            window.location.href = data.redirect;
+          } else {
+            setTimeout(pollStatus, 2000);
+          }
+        })
+        .catch(err => {
+          console.error("Error polling payment status:", err);
+          setTimeout(pollStatus, 2000);
+        });
+    }
+    setTimeout(pollStatus, 2000);
+  </script>
+</body>
+</html>
