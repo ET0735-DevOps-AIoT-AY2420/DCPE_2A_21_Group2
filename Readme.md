@@ -1,4 +1,4 @@
-# Smart Drink Vending Machine
+;# Smart Drink Vending Machine
 
 ## 📌 Project Overview
 The **Smart Drink Vending Machine** is an innovative vending system designed to allow customers to purchase drinks both **physically at the vending machine** and **remotely via their smartphones or an external website**. The system integrates multiple payment methods, security features, and environmental monitoring to ensure optimal operation.
@@ -114,7 +114,13 @@ Supports RFID card payments, QR codes, and future payment integrations.
     - Admin
       - Enter passcode (1234) and the door will open for admin.
     
----    
+---  
+
+## Contribution
+- **[KYAW NYI NYI HAN]** - Remote/ Local order system, Database Configuration and Maintenance, Website, Admin server, Docker, Debugging and Testing
+- **[ALARCIO JAESON MATHEW BALICTAR]** -
+- **[Su Myat Mon]** - Environmental Monitoring, Inventory Checking and Updating, Admin Server
+- **[Wai Yan Min Khaung]** - Security Feature, Drink Preparation, Admin Log in, Debugging and Testing
       
 ## 🤝 Contributors
 
