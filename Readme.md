@@ -109,7 +109,7 @@ Supports RFID card payments, QR codes, and future payment integrations.
       - Two options. 1. order, 2. pick-up. 
       - To order drink, select drink by pressing number (press # to enter) on keypad. LCD will display the drink order.
       - Customer can purchase either by rfid card, or qr code.
-      - After confimring order, drink preparation takes place, and the door will be opened for drinks collection.
+      - After confiming order, drink preparation takes place, and the door will be opened for drinks collection.
       - For remote orders, select pick-up, and scan the qr code sent in telegram. After scanning qr code, the door will open.
     - Admin
       - Enter passcode (1234) and the door will open for admin.
