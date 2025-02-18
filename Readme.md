@@ -75,6 +75,47 @@ Supports RFID card payments, QR codes, and future payment integrations.
 
 ---
 
+## Usage Guide
+### 1. Database Setup
+  - Open the system-wide environment file:
+      *sudo nano/etc/environment*
+  - Add this at the end of the file (without export):
+      *DB_PATH="/home/pi/user's custom naming directory/src/sqlite-data/vending_machine.db"*
+  - Save `(CTRL+X)`, then `Y`, then `Enter`.
+  - Reboot for changes to take effect.
+      *sudo reboot*
+  - If you run echo $DB_PATH on terminal,
+      */home/pi/user's custom naming directory/src/sqlite-data/vending_machine.db" will appear.*
+  - Run initialize_database.py
+  - Run insert_user.py
+  - Run generate_data.py (optional if you want extra data)
+
+### 2. Running Docker
+  - *docker build -t vending-app-f Dockerfile-app .*
+  - *docker run -d --name vending-app -p 5000:5000 \
+    --env-file ../.env \
+    -v /home/pi/alvin/DevOps/src/sqlite-data:/sqlite-data \
+    -v /home/pi/alvin/DevOps/src/qrcodes:/app/qrcodes \
+    kinda1vin/vending-app:latest*
+
+### 3. Run admin.py for admin server
+### 4. Run app.py for remote order system from website
+  - Customer will be able to order drink from website and purchase by card and apple pay.
+  - After payment is confirmed, QR code for drink collection will be sent to customer.
+### 5. Run telegram_bot.py
+### 6. Run main.py.
+  - LCD displays main menu. 1. Admin, 2. Customer
+  **Customer**
+    - Two options. 1. order, 2. pick-up. 
+    - To order drink, select drink by pressing number (press # to enter) on keypad. LCD will display the drink order.
+    - Customer can purchase either by rfid card, or qr code.
+    - After confimring order, drink preparation takes place, and the door will be opened for drinks collection.
+    - For remote orders, select pick-up, and scan the qr code sent in telegram. After scanning qr code, the door will open.
+  **Admin**
+    - Enter passcode (1234) and the door will open for admin.
+    
+---    
+      
 ## 🤝 Contributors
 
 - **[KYAW NYI NYI HAN]** 
